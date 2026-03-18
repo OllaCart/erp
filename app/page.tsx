@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MessageProvider } from "@/context/message-context"
 import { ChatContainer } from "@/components/chat/chat-container"
@@ -18,6 +18,16 @@ import { HealthDashboard } from "@/components/dashboard/health-dashboard"
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dash")
+
+  const onNavigate = useCallback((e: Event) => {
+    const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+    if (tab === "settings") setActiveTab("settings")
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener("wayward-navigate", onNavigate)
+    return () => window.removeEventListener("wayward-navigate", onNavigate)
+  }, [onNavigate])
 
   return (
     <MessageProvider>

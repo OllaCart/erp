@@ -10,6 +10,7 @@ export const TaskService = {
     const newTask: Task = {
       id: uuidv4(),
       ...task,
+      dependsOnTaskIds: task.dependsOnTaskIds ?? [],
       dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
       completedDate: task.completedDate ? new Date(task.completedDate) : undefined,
     }

@@ -18,6 +18,13 @@
    - Copy `.env.local.example` to `.env.local`
    - Fill in your API keys
 
+   **Link Gmail (Settings → Linked accounts)**  
+   1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → **Create credentials** → OAuth client ID → **Web application**.  
+   2. **Authorized redirect URI**: `{NEXT_PUBLIC_APP_URL}/api/auth/google/callback`  
+      (e.g. `http://localhost:3000/api/auth/google/callback` for local dev.)  
+   3. Set `NEXT_PUBLIC_APP_URL`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in `.env.local`.  
+   4. If the app URL and redirect URI don’t match (e.g. `localhost` vs `127.0.0.1`), Google will reject the callback.
+
 3. **Run the Development Server**
    ```bash
    # With pnpm:
@@ -44,5 +51,6 @@ The app includes:
 - The app is configured to run in mock mode if Neo4j credentials are missing
 - TypeScript build errors are ignored (see next.config.mjs)
 - Images are unoptimized for faster development
+
 
 

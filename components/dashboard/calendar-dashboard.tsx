@@ -21,8 +21,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { format, addDays, startOfWeek, addWeeks, isSameDay, addHours, startOfDay } from "date-fns"
-import { ClockIcon, PlusIcon, EditIcon, ChevronLeftIcon, ChevronRightIcon, CalendarIcon, LinkIcon } from "lucide-react"
+import { format, addDays, startOfWeek, addWeeks, isSameDay, addHours, startOfDay, setHours, setMinutes } from "date-fns"
+import {
+  ClockIcon,
+  PlusIcon,
+  EditIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CalendarIcon,
+  LinkIcon,
+  GripVerticalIcon,
+} from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 
 interface TimeSlot {
   time: string
@@ -49,19 +59,88 @@ export const CalendarDashboard: React.FC = () => {
   const [isCreatingBooking, setIsCreatingBooking] = useState(false)
   const [newBooking, setNewBooking] = useState<Partial<MeetingBooking>>({})
   const dailyScrollRef = useRef<HTMLDivElement>(null)
+  const rangeDragRef = useRef<{ startH: number; endH: number } | null>(null)
 
   const userId = "user-123"
 
-  useEffect(() => {
-    const fetchEvents = async () => {
-      const userEvents = await CalendarService.getUserEvents(userId)
-      setEvents(userEvents)
-      loadDailyPlan(selectedDate)
-    }
+  const CAL_HOUR_START = 7
+  const CAL_HOUR_END = 21
 
-    fetchEvents()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createDraft, setCreateDraft] = useState<{
+    start: Date
+    end: Date
+    title: string
+    attending: boolean
+  } | null>(null)
+  const [rangePreview, setRangePreview] = useState<{ lo: number; hi: number } | null>(null)
+  const rangeActiveRef = useRef(false)
+
+  const reloadEvents = async () => {
+    const userEvents = await CalendarService.getUserEvents(userId)
+    setEvents(userEvents)
+  }
+
+  useEffect(() => {
+    void reloadEvents()
+    loadDailyPlan(selectedDate)
     loadRoutines()
     loadMeetingBookings()
+  }, [selectedDate])
+
+  const openCreateDialog = (start: Date, end: Date) => {
+    setCreateDraft({
+      start,
+      end: end > start ? end : addHours(start, 1),
+      title: "New event",
+      attending: true,
+    })
+    setCreateOpen(true)
+  }
+
+  const saveNewEvent = async () => {
+    if (!createDraft?.title.trim()) return
+    await CalendarService.addEvent({
+      userId,
+      title: createDraft.title.trim(),
+      type: "other",
+      startDate: createDraft.start,
+      endDate: createDraft.end,
+      attending: createDraft.attending,
+    })
+    await reloadEvents()
+    setCreateOpen(false)
+    setCreateDraft(null)
+  }
+
+  const setEventAttending = async (ev: CalendarEvent, attending: boolean) => {
+    await CalendarService.updateEvent(ev.id, { attending })
+    await reloadEvents()
+  }
+
+  const handleDragOverGrid = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "copy"
+  }
+
+  useEffect(() => {
+    const onUp = () => {
+      if (!rangeActiveRef.current || !rangeDragRef.current) return
+      rangeActiveRef.current = false
+      const r = rangeDragRef.current
+      rangeDragRef.current = null
+      setRangePreview(null)
+      const lo = Math.min(r.startH, r.endH)
+      const hi = Math.max(r.startH, r.endH)
+      const d = selectedDate
+      openCreateDialog(addHours(startOfDay(d), lo), addHours(startOfDay(d), hi + 1))
+    }
+    window.addEventListener("pointerup", onUp)
+    window.addEventListener("pointercancel", onUp)
+    return () => {
+      window.removeEventListener("pointerup", onUp)
+      window.removeEventListener("pointercancel", onUp)
+    }
   }, [selectedDate])
 
   const loadRoutines = () => {
@@ -184,16 +263,13 @@ export const CalendarDashboard: React.FC = () => {
   }
 
   const generateHourlySlots = (date: Date) => {
-    const slots = []
+    const slots: { time: string; hour: number; events: CalendarEvent[]; isEmpty: boolean }[] = []
     const startOfDayDate = startOfDay(date)
-
-    for (let i = 0; i < 24; i++) {
+    for (let i = CAL_HOUR_START; i < CAL_HOUR_END; i++) {
       const slotTime = addHours(startOfDayDate, i)
-      const eventsInSlot = events.filter((event) => {
-        const eventHour = event.startDate.getHours()
-        return isSameDay(event.startDate, date) && eventHour === i
-      })
-
+      const eventsInSlot = events.filter(
+        (event) => isSameDay(event.startDate, date) && event.startDate.getHours() === i,
+      )
       slots.push({
         time: format(slotTime, "HH:mm"),
         hour: i,
@@ -201,8 +277,13 @@ export const CalendarDashboard: React.FC = () => {
         isEmpty: eventsInSlot.length === 0,
       })
     }
-
     return slots
+  }
+
+  const weekHourRows = () => {
+    const rows: number[] = []
+    for (let h = CAL_HOUR_START; h < CAL_HOUR_END; h++) rows.push(h)
+    return rows
   }
 
   const getWeekDays = (weekStart: Date) => {
@@ -269,11 +350,71 @@ export const CalendarDashboard: React.FC = () => {
           <TabsTrigger value="routines">Routines</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="calendar" className="flex-1 overflow-hidden">
-          <div className="h-full flex gap-4">
-            {/* Daily View - Left Side */}
-            <div className="w-1/2 flex flex-col">
-              <div className="flex items-center justify-between mb-4">
+        <TabsContent value="calendar" className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <Dialog
+            open={createOpen}
+            onOpenChange={(open) => {
+              setCreateOpen(open)
+              if (!open) setCreateDraft(null)
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New event</DialogTitle>
+                <DialogDescription>Set the title and whether you are attending.</DialogDescription>
+              </DialogHeader>
+              {createDraft && (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="ev-title">Title</Label>
+                    <Input
+                      id="ev-title"
+                      value={createDraft.title}
+                      onChange={(e) => setCreateDraft({ ...createDraft, title: e.target.value })}
+                    />
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {format(createDraft.start, "EEE MMM d, h:mm a")} – {format(createDraft.end, "h:mm a")}
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div>
+                      <div className="font-medium text-sm">I am attending</div>
+                      <div className="text-xs text-muted-foreground">Off = show faded (not attending)</div>
+                    </div>
+                    <Switch
+                      checked={createDraft.attending}
+                      onCheckedChange={(c) => setCreateDraft({ ...createDraft, attending: c })}
+                    />
+                  </div>
+                  <Button className="w-full" onClick={() => void saveNewEvent()}>
+                    Save event
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          <div className="flex flex-wrap items-center gap-3 mb-3 px-1 py-2 rounded-lg border bg-muted/40">
+            <div
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", "wayward-new-event")
+                e.dataTransfer.effectAllowed = "copy"
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border bg-background cursor-grab active:cursor-grabbing text-sm font-medium shadow-sm select-none"
+            >
+              <GripVerticalIcon className="h-4 w-4 text-muted-foreground" />
+              Drag to create event
+            </div>
+            <p className="text-xs text-muted-foreground max-w-md">
+              Drop on any hour cell in the week grid or day column. On the day view, drag the narrow strip beside
+              times to select a multi-hour block.
+            </p>
+          </div>
+
+          <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
+            <div className="w-1/2 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-3 shrink-0">
                 <div className="flex items-center space-x-2">
                   <Button variant="outline" size="sm" onClick={() => setSelectedDate(addDays(selectedDate, -1))}>
                     <ChevronLeftIcon className="h-4 w-4" />
@@ -288,56 +429,123 @@ export const CalendarDashboard: React.FC = () => {
                 </Button>
               </div>
 
-              <Card className="flex-1 overflow-hidden">
-                <CardHeader className="pb-2">
+              <Card className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <CardHeader className="pb-2 shrink-0">
                   <CardTitle className="text-lg">{format(selectedDate, "EEEE, MMMM d, yyyy")}</CardTitle>
                 </CardHeader>
-                <CardContent className="h-full overflow-hidden">
-                  <ScrollArea className="h-full" ref={dailyScrollRef}>
-                    <div className="space-y-1">
-                      {generateHourlySlots(selectedDate).map((slot) => (
-                        <div key={slot.hour} className="flex items-start border-b border-gray-100 py-2">
-                          <div className="w-16 text-sm text-muted-foreground font-mono">{slot.time}</div>
-                          <div className="flex-1 ml-4">
-                            {slot.events.length > 0 ? (
-                              <div className="space-y-1">
-                                {slot.events.map((event) => (
-                                  <div key={event.id} className="p-2 rounded-md bg-blue-50 border-l-4 border-blue-500">
-                                    <div className="font-medium text-sm">{event.title}</div>
-                                    {event.description && (
-                                      <div className="text-xs text-muted-foreground">{event.description}</div>
-                                    )}
-                                    <div className="flex items-center mt-1 text-xs text-muted-foreground">
-                                      <ClockIcon className="h-3 w-3 mr-1" />
-                                      {format(event.startDate, "h:mm a")}
-                                      {event.endDate && ` - ${format(event.endDate, "h:mm a")}`}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="h-8 flex items-center">
-                                <div className="w-full border-t border-dashed border-gray-200"></div>
-                              </div>
-                            )}
+                <CardContent className="flex-1 min-h-0 overflow-hidden p-2">
+                  <ScrollArea className="h-[min(520px,55vh)]" ref={dailyScrollRef}>
+                    <div className="space-y-0 pr-2">
+                      {generateHourlySlots(selectedDate).map((slot) => {
+                        const inRange =
+                          rangePreview &&
+                          slot.hour >= rangePreview.lo &&
+                          slot.hour <= rangePreview.hi
+                        return (
+                          <div
+                            key={slot.hour}
+                            className={`flex items-stretch border-b border-border min-h-[52px] ${inRange ? "bg-blue-100/40 dark:bg-blue-950/30" : ""}`}
+                            onPointerEnter={() => {
+                              if (!rangeActiveRef.current || !rangeDragRef.current) return
+                              rangeDragRef.current.endH = slot.hour
+                              const lo = Math.min(rangeDragRef.current.startH, rangeDragRef.current.endH)
+                              const hi = Math.max(rangeDragRef.current.startH, rangeDragRef.current.endH)
+                              setRangePreview({ lo, hi })
+                            }}
+                          >
+                            <div className="w-14 shrink-0 flex flex-col items-center pt-1 border-r border-dashed border-muted">
+                              <span className="text-xs text-muted-foreground font-mono">{slot.time}</span>
+                              <button
+                                type="button"
+                                className="mt-1 w-5 flex-1 min-h-8 rounded-sm bg-muted/60 hover:bg-muted border border-dashed border-muted-foreground/30 touch-none"
+                                title="Drag down to select hours"
+                                onPointerDown={(e) => {
+                                  e.preventDefault()
+                                  rangeActiveRef.current = true
+                                  rangeDragRef.current = { startH: slot.hour, endH: slot.hour }
+                                  setRangePreview({ lo: slot.hour, hi: slot.hour })
+                                }}
+                              />
+                            </div>
+                            <div
+                              className="flex-1 pl-2 py-1 min-w-0"
+                              onDragOver={handleDragOverGrid}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                if (e.dataTransfer.getData("text/plain") !== "wayward-new-event") return
+                                const start = setMinutes(setHours(startOfDay(selectedDate), slot.hour), 0)
+                                openCreateDialog(start, addHours(start, 1))
+                              }}
+                            >
+                              {slot.events.length > 0 ? (
+                                <div className="space-y-2">
+                                  {slot.events.map((event) => {
+                                    const att = event.attending !== false
+                                    return (
+                                      <div
+                                        key={event.id}
+                                        className={`rounded-md border p-2 text-sm transition-opacity ${
+                                          att
+                                            ? "bg-blue-50 dark:bg-blue-950/40 border-l-4 border-l-blue-500 shadow-sm"
+                                            : "opacity-50 bg-muted/30 border-dashed border-muted-foreground/25 text-muted-foreground"
+                                        }`}
+                                        onPointerDown={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="font-medium">{event.title}</div>
+                                        {event.description && (
+                                          <div className="text-xs text-muted-foreground line-clamp-2">
+                                            {event.description}
+                                          </div>
+                                        )}
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2 text-xs text-muted-foreground">
+                                          <span className="flex items-center">
+                                            <ClockIcon className="h-3 w-3 mr-1 shrink-0" />
+                                            {format(event.startDate, "h:mm a")}
+                                            {event.endDate && ` – ${format(event.endDate, "h:mm a")}`}
+                                          </span>
+                                          {!att && (
+                                            <Badge variant="outline" className="text-[10px] h-5">
+                                              Not attending
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <div
+                                          className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border/50"
+                                          onClick={(ev) => ev.stopPropagation()}
+                                        >
+                                          <span className="text-xs text-muted-foreground">Attending</span>
+                                          <Switch
+                                            checked={att}
+                                            onCheckedChange={(c) => void setEventAttending(event, c)}
+                                          />
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="h-full min-h-8 flex items-center text-xs text-muted-foreground/60">
+                                  Drop event here
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </ScrollArea>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Weekly View - Right Side */}
-            <div className="w-1/2 flex flex-col">
-              <div className="flex items-center justify-between mb-4">
+            <div className="w-1/2 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-3 shrink-0">
                 <div className="flex items-center space-x-2">
                   <Button variant="outline" size="sm" onClick={() => setCurrentWeek(addWeeks(currentWeek, -1))}>
                     <ChevronLeftIcon className="h-4 w-4" />
                   </Button>
                   <h2 className="text-xl font-bold">
-                    {format(currentWeek, "MMM d")} - {format(addDays(currentWeek, 6), "MMM d, yyyy")}
+                    {format(currentWeek, "MMM d")} – {format(addDays(currentWeek, 6), "MMM d, yyyy")}
                   </h2>
                   <Button variant="outline" size="sm" onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}>
                     <ChevronRightIcon className="h-4 w-4" />
@@ -345,17 +553,22 @@ export const CalendarDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <Card className="flex-1 overflow-hidden">
-                <CardContent className="h-full p-0">
-                  <div className="h-full flex">
-                    {getWeekDays(currentWeek).map((day, dayIndex) => (
-                      <div key={dayIndex} className="flex-1 border-r border-gray-200 last:border-r-0">
-                        <div className="p-2 border-b border-gray-200 text-center">
-                          <div className="text-xs text-muted-foreground">{format(day, "EEE")}</div>
-                          <div
-                            className={`text-sm font-medium ${
+              <Card className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <CardContent className="p-0 flex-1 min-h-0 overflow-auto">
+                  <div className="min-w-[340px]">
+                    <div className="flex border-b bg-muted/30 sticky top-0 z-10">
+                      <div className="w-9 shrink-0" />
+                      {getWeekDays(currentWeek).map((day, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 min-w-0 py-1 px-0.5 text-center border-l text-[10px] sm:text-xs"
+                        >
+                          <div className="text-muted-foreground">{format(day, "EEE")}</div>
+                          <button
+                            type="button"
+                            className={`mt-0.5 font-medium rounded-full w-6 h-6 mx-auto flex items-center justify-center ${
                               isSameDay(day, selectedDate)
-                                ? "bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center mx-auto"
+                                ? "bg-blue-500 text-white"
                                 : isSameDay(day, new Date())
                                   ? "text-blue-600 font-bold"
                                   : ""
@@ -363,43 +576,77 @@ export const CalendarDashboard: React.FC = () => {
                             onClick={() => setSelectedDate(day)}
                           >
                             {format(day, "d")}
-                          </div>
+                          </button>
                         </div>
-                        <ScrollArea className="h-full">
-                          <div className="p-1 space-y-1">
-                            {events
-                              .filter((event) => isSameDay(event.startDate, day))
-                              .map((event) => (
-                                <div
-                                  key={event.id}
-                                  className="p-1 rounded text-xs bg-blue-100 text-blue-800 cursor-pointer hover:bg-blue-200"
-                                  onClick={() => setSelectedDate(day)}
-                                >
-                                  <div className="font-medium truncate">{event.title}</div>
-                                  <div className="text-xs opacity-75">{format(event.startDate, "h:mm a")}</div>
-                                </div>
-                              ))}
-                            {dailyPlan &&
-                              isSameDay(day, dailyPlan.date) &&
-                              dailyPlan.customBlocks.map((block) => (
-                                <div
-                                  key={block.id}
-                                  className={`p-1 rounded text-xs cursor-pointer hover:opacity-80 ${getCategoryColor(
-                                    block.category,
-                                  )} text-white`}
-                                  onClick={() => setSelectedDate(day)}
-                                >
-                                  <div className="font-medium truncate">{block.title}</div>
-                                  <div className="text-xs opacity-75">
-                                    {block.startTime} - {block.endTime}
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        </ScrollArea>
+                      ))}
+                    </div>
+                    {weekHourRows().map((hour) => (
+                      <div key={hour} className="flex border-b border-border/80 min-h-[40px]">
+                        <div className="w-9 shrink-0 text-[10px] text-muted-foreground pr-0.5 pt-0.5 text-right font-mono">
+                          {hour}
+                        </div>
+                        {getWeekDays(currentWeek).map((day, dayIndex) => {
+                          const cellEvents = events.filter(
+                            (ev) => isSameDay(ev.startDate, day) && ev.startDate.getHours() === hour,
+                          )
+                          return (
+                            <div
+                              key={`${hour}-${dayIndex}`}
+                              className="flex-1 min-w-0 border-l border-border/60 p-0.5 hover:bg-muted/20 transition-colors"
+                              onDragOver={handleDragOverGrid}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                if (e.dataTransfer.getData("text/plain") !== "wayward-new-event") return
+                                const d = addDays(currentWeek, dayIndex)
+                                const start = setMinutes(setHours(startOfDay(d), hour), 0)
+                                openCreateDialog(start, addHours(start, 1))
+                              }}
+                            >
+                              <div className="space-y-0.5">
+                                {cellEvents.map((event) => {
+                                  const att = event.attending !== false
+                                  return (
+                                    <div
+                                      key={event.id}
+                                      className={`rounded px-0.5 py-0.5 text-[10px] leading-tight border ${
+                                        att
+                                          ? "bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-100 border-blue-200"
+                                          : "opacity-45 bg-muted/50 text-muted-foreground border-dashed"
+                                      }`}
+                                      onClick={() => setSelectedDate(day)}
+                                    >
+                                      <div className="font-medium truncate">{event.title}</div>
+                                      <div className="flex items-center justify-between gap-0.5 mt-0.5">
+                                        <span className="opacity-80 truncate">{format(event.startDate, "h:mm")}</span>
+                                        <span
+                                          className="shrink-0"
+                                          onPointerDown={(ev) => ev.stopPropagation()}
+                                          onClick={(ev) => ev.stopPropagation()}
+                                        >
+                                          <Switch
+                                            className="scale-[0.55] origin-right"
+                                            checked={att}
+                                            onCheckedChange={(c) => void setEventAttending(event, c)}
+                                          />
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
                       </div>
                     ))}
                   </div>
+                  {dailyPlan &&
+                    getWeekDays(currentWeek).some((d) => isSameDay(d, dailyPlan.date)) && (
+                      <div className="p-2 text-xs text-muted-foreground border-t">
+                        Routine blocks also appear on{" "}
+                        {format(dailyPlan.date, "MMM d")} in the day column.
+                      </div>
+                    )}
                 </CardContent>
               </Card>
             </div>

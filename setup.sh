@@ -14,3 +14,4 @@ echo ""
 echo "Setup complete! Run 'npm run dev' or 'pnpm dev' to start the server."
 
 
+

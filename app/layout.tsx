@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { MessageProvider } from "@/context/message-context"
 import { Toaster } from "@/components/ui/toaster"
+import { GmailLinkHandler } from "@/components/gmail-link-handler"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,6 +25,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <MessageProvider>
             {children}
+            <GmailLinkHandler />
             <Toaster />
           </MessageProvider>
         </ThemeProvider>

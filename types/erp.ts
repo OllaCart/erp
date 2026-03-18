@@ -1,5 +1,28 @@
 export type TransactionType = "income" | "expense"
 export type TaskStatus = "pending" | "in-progress" | "completed" | "cancelled"
+export type InitiativeStatus = "planned" | "active" | "completed" | "cancelled"
+export type ProjectStatus = "planned" | "active" | "on-hold" | "completed" | "cancelled"
+
+/** Top-level strategic bucket. */
+export interface Initiative {
+  id: string
+  userId: string
+  name: string
+  description?: string
+  status: InitiativeStatus
+  createdAt: Date
+}
+
+/** Work container under an initiative. */
+export interface Project {
+  id: string
+  userId: string
+  initiativeId: string
+  name: string
+  description?: string
+  status: ProjectStatus
+  createdAt: Date
+}
 export type EventType = "meeting" | "reminder" | "deadline" | "personal" | "other"
 export type EmotionalState = "neutral" | "positive" | "negative" | "excited" | "anxious"
 export type RelationshipType = "family" | "friend" | "colleague" | "acquaintance" | "romantic" | "professional"
@@ -14,10 +37,32 @@ export type HealthMetricType =
   | "heart_rate"
   | "steps"
 
+/** Linked Google / Gmail identity (OAuth). */
+export interface LinkedGoogleAccount {
+  id: string
+  /** Google user id (stable per account). */
+  googleSub: string
+  email: string
+  name?: string
+  picture?: string
+  linkedAt: Date
+}
+
+/** Additional emails tied to the same account (sign-in, notifications, recovery). */
+export interface LinkedEmailAddress {
+  id: string
+  email: string
+  verified: boolean
+  isPrimary: boolean
+  addedAt: Date
+}
+
 export interface User {
   id: string
   name: string
   email: string
+  /** Extra addresses beyond the primary `email`; optional until loaded from account settings. */
+  linkedEmails?: LinkedEmailAddress[]
   phoneNumber?: string
   createdAt: Date
 }
@@ -43,6 +88,10 @@ export interface Task {
   dueDate?: Date
   completedDate?: Date
   tags?: string[]
+  /** When set, task lives under a project (and its initiative). */
+  projectId?: string
+  /** Other tasks in the same project that must be completed before this one (no cycles). */
+  dependsOnTaskIds?: string[]
 }
 
 export interface CalendarEvent {
@@ -56,6 +105,8 @@ export interface CalendarEvent {
   location?: string
   participants?: string[]
   tags?: string[]
+  /** When false, event still appears but styled as not attending. Default true. */
+  attending?: boolean
 }
 
 export interface Memory {
