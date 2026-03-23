@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MessageProvider } from "@/context/message-context"
 import { ChatContainer } from "@/components/chat/chat-container"
 import { DashDashboard } from "@/components/dashboard/dash-dashboard"
 import { TaskDashboard } from "@/components/dashboard/task-dashboard"
@@ -30,8 +29,7 @@ export default function Home() {
   }, [onNavigate])
 
   return (
-    <MessageProvider>
-      <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
         <div className="container mx-auto p-4 h-screen flex flex-col">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
             <TabsList className="grid w-full grid-cols-12 mb-4">
@@ -101,6 +99,5 @@ export default function Home() {
           </Tabs>
         </div>
       </div>
-    </MessageProvider>
   )
 }

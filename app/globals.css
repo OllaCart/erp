@@ -123,3 +123,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Bottom todo ticker (mobile marquee) */
+@keyframes marquee-ticker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee-ticker {
+  display: flex;
+  width: max-content;
+  animation: marquee-ticker 28s linear infinite;
+}
+
+.animate-marquee-ticker:hover {
+  animation-play-state: paused;
+}

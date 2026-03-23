@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { MessageProvider } from "@/context/message-context"
 import { Toaster } from "@/components/ui/toaster"
 import { GmailLinkHandler } from "@/components/gmail-link-handler"
+import { BottomTodoDock } from "@/components/bottom-todo-dock"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,7 +25,8 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <MessageProvider>
-            {children}
+            <div className="pb-44 min-h-screen">{children}</div>
+            <BottomTodoDock />
             <GmailLinkHandler />
             <Toaster />
           </MessageProvider>
