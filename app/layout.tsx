@@ -25,7 +25,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <MessageProvider>
-            <div className="pb-44 min-h-screen">{children}</div>
+            <div className="pb-52 sm:pb-48 md:pb-44 min-h-[100dvh] min-h-screen">{children}</div>
             <BottomTodoDock />
             <GmailLinkHandler />
             <Toaster />

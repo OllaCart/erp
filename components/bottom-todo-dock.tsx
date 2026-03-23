@@ -4,7 +4,7 @@ import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useMessages } from "@/context/message-context"
-import { TickerTodoStore, type TickerTodoItem } from "@/lib/ticker-todos"
+import { TickerTodoStore, TICKER_SEED_ITEMS, type TickerTodoItem } from "@/lib/ticker-todos"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -15,7 +15,7 @@ import { MessageCircleIcon, ListTodoIcon, ChevronRightIcon } from "lucide-react"
 export const BottomTodoDock: React.FC = () => {
   const router = useRouter()
   const { messages } = useMessages()
-  const [todos, setTodos] = useState<TickerTodoItem[]>([])
+  const [todos, setTodos] = useState<TickerTodoItem[]>(TICKER_SEED_ITEMS)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [newSub, setNewSub] = useState<Record<string, string>>({})
   const mobileScrollRef = useRef<HTMLDivElement>(null)
@@ -59,7 +59,7 @@ export const BottomTodoDock: React.FC = () => {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none flex flex-col items-stretch gap-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
+    <div className="fixed bottom-0 left-0 right-0 z-[100] pointer-events-none flex flex-col items-stretch gap-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
       {/* Liquid glass — chat preview (always above ticker) */}
       <div className="pointer-events-auto max-w-4xl mx-auto w-full mb-1">
         <div
@@ -76,10 +76,10 @@ export const BottomTodoDock: React.FC = () => {
       </div>
 
       {/* Ticker bar */}
-      <div className="pointer-events-auto rounded-t-xl border border-border/80 bg-background/85 backdrop-blur-md shadow-[0_-4px_24px_rgba(0,0,0,0.08)] dark:bg-background/90">
+      <div className="pointer-events-auto rounded-t-xl border border-border/80 bg-background/95 backdrop-blur-md shadow-[0_-4px_24px_rgba(0,0,0,0.12)] dark:bg-background/95 ring-1 ring-black/5 dark:ring-white/10">
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border/50">
           <ListTodoIcon className="h-4 w-4 text-muted-foreground shrink-0 ml-1" />
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0 hidden sm:inline">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0">
             Todos
           </span>
         </div>

@@ -33,7 +33,8 @@ function save(items: TickerTodoItem[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
 }
 
-function defaultTodos(): TickerTodoItem[] {
+/** Same seed as `defaultTodos()` — use for SSR-safe initial UI before localStorage hydrates. */
+export const TICKER_SEED_ITEMS: TickerTodoItem[] = (() => {
   const now = new Date().toISOString()
   return [
     {
@@ -58,6 +59,14 @@ function defaultTodos(): TickerTodoItem[] {
       subtasks: [],
     },
   ]
+})()
+
+function defaultTodos(): TickerTodoItem[] {
+  return TICKER_SEED_ITEMS.map((t) => ({
+    ...t,
+    subtasks: t.subtasks.map((s) => ({ ...s })),
+    createdAt: t.createdAt,
+  }))
 }
 
 export const TickerTodoStore = {

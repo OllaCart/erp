@@ -29,22 +29,22 @@ export default function Home() {
   }, [onNavigate])
 
   return (
-    <div className="min-h-screen bg-background">
-        <div className="container mx-auto p-4 h-screen flex flex-col">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-12 mb-4">
-              <TabsTrigger value="dash">Dash</TabsTrigger>
-              <TabsTrigger value="chat">Chat</TabsTrigger>
-              <TabsTrigger value="tasks">Tasks</TabsTrigger>
-              <TabsTrigger value="calendar">Calendar</TabsTrigger>
-              <TabsTrigger value="financial">Financial</TabsTrigger>
-              <TabsTrigger value="memory">Memory</TabsTrigger>
-              <TabsTrigger value="social">Social</TabsTrigger>
-              <TabsTrigger value="health">Health</TabsTrigger>
-              <TabsTrigger value="goals">Goals</TabsTrigger>
-              <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
-              <TabsTrigger value="accounts">Accounts</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
+    <div className="min-h-[100dvh] min-h-screen bg-background flex flex-col">
+        <div className="container mx-auto p-3 sm:p-4 flex flex-col flex-1 min-h-0 max-w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+            <TabsList className="mb-3 sm:mb-4 w-full min-w-0 max-w-full h-auto min-h-10 p-1.5 flex flex-nowrap lg:grid lg:grid-cols-12 overflow-x-auto overflow-y-hidden justify-start lg:justify-center gap-1 rounded-xl lg:rounded-lg [scrollbar-width:thin] touch-pan-x [-webkit-overflow-scrolling:touch] snap-x snap-mandatory [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/25">
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="dash">Dash</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="chat">Chat</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="calendar">Calendar</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="financial">Financial</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="memory">Memory</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="social">Social</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="health">Health</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="goals">Goals</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="knowledge">Knowledge</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="accounts">Accounts</TabsTrigger>
+              <TabsTrigger className="shrink-0 flex-none lg:flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] px-2.5 sm:px-3 text-xs sm:text-sm snap-start" value="settings">Settings</TabsTrigger>
             </TabsList>
 
             <div className="flex-1 overflow-hidden">
