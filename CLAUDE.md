@@ -26,7 +26,7 @@ Only after reading the existing code should you begin writing new code.
     Step 2: Build /lib/claude.ts (Claude API wrapper)
     Step 3: Build /lib/memory.ts (Neo4j memory read/write)
     Step 4: Build /app/api/claude/route.ts (main Claude endpoint)
-    Step 5: Seed initial memories to Neo4j (business contexts)
+    Step 5: Add founder context via wiki/pages and/or Neo4j (no automatic seed in repo)
 
   Phase 2 (Email — needed by tasks, support, VC):
     Step 6: Extend Google OAuth for multi-account

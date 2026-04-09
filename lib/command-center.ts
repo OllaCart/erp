@@ -8,6 +8,7 @@ export const WAYWARD_CMD_END = "[[/WAYWARD_CMDS]]"
 
 /** Tab `value`s from app/page.tsx — keep in sync when adding tabs */
 export const WAYWARD_TAB_IDS = [
+  "home",
   "dash",
   "chat",
   "tasks",
@@ -39,6 +40,12 @@ export function isWaywardTabId(tab: string): tab is WaywardTabId {
   return (WAYWARD_TAB_IDS as readonly string[]).includes(tab)
 }
 
+/** Map older Claude outputs to current tab ids. */
+export function normalizeLegacyNavigateTab(tab: string): string {
+  if (tab === "voice") return "dash"
+  return tab
+}
+
 export function parseWaywardCommandBlock(text: string): {
   commands: WaywardCommand[]
   visibleText: string
@@ -64,10 +71,13 @@ export function parseWaywardCommandBlock(text: string): {
         item &&
         typeof item === "object" &&
         (item as { type?: string }).type === "navigate" &&
-        typeof (item as { tab?: string }).tab === "string" &&
-        isWaywardTabId((item as { tab: string }).tab)
+        typeof (item as { tab?: string }).tab === "string"
       ) {
-        commands.push({ type: "navigate", tab: (item as { tab: WaywardTabId }).tab })
+        const rawTab = (item as { tab: string }).tab
+        const tab = normalizeLegacyNavigateTab(rawTab)
+        if (isWaywardTabId(tab)) {
+          commands.push({ type: "navigate", tab })
+        }
       }
     }
   } catch {
@@ -87,6 +97,6 @@ ${WAYWARD_CMD_START}
 [{"type":"navigate","tab":"TAB_ID"}]
 ${WAYWARD_CMD_END}
 
-Replace TAB_ID with one of: dash, chat, tasks, calendar, financial, memory, social, health, goals, knowledge, email, dev, support, crm, accounts, settings.
+Replace TAB_ID with one of: home, dash (Voice tab), chat, tasks, calendar, financial, memory, social, health, goals, knowledge, email, dev, support, crm, accounts, settings.
 You may include multiple objects in the array if multiple navigations are needed (rare). Do not explain the block to the user; they will not see it.
 `.trim()

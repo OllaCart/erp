@@ -1,11 +1,23 @@
 "use client"
 
 import type React from "react"
-import { useState, type FormEvent } from "react"
+import { useState, useEffect, useCallback, type FormEvent } from "react"
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
+import {
+  WAYWARD_CHAT_START_LISTENING_EVENT,
+} from "@/lib/wayward-shell-events"
+import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useMessages } from "@/context/message-context"
-import { PlaneIcon as PaperPlaneIcon, PlusCircleIcon, UsersIcon, UserPlusIcon } from "lucide-react"
+import {
+  PlaneIcon as PaperPlaneIcon,
+  PlusCircleIcon,
+  UsersIcon,
+  UserPlusIcon,
+  Mic,
+  MicOff,
+} from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useRouter } from "next/navigation"
 
 export const ChatInput: React.FC = () => {
+  const { toast } = useToast()
   const [message, setMessage] = useState("")
   const { sendMessage, isLoading, createGroupChat } = useMessages()
   const router = useRouter()
@@ -40,12 +53,54 @@ export const ChatInput: React.FC = () => {
     isGoalOriented: false,
   })
 
+  const onVoiceResult = useCallback((transcript: string) => {
+    setMessage((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript))
+  }, [])
+
+  const onVoiceError = useCallback(
+    (msg: string) => {
+      toast({ title: "Voice input", description: msg, variant: "destructive" })
+    },
+    [toast],
+  )
+
+  const { start: startVoice, abort: abortVoice, status: voiceStatus, supported: voiceSupported } =
+    useSpeechRecognition({
+      onResult: onVoiceResult,
+      onError: onVoiceError,
+    })
+
+  useEffect(() => {
+    const onGlobalListen = () => {
+      if (!voiceSupported || isLoading) return
+      startVoice()
+    }
+    window.addEventListener(WAYWARD_CHAT_START_LISTENING_EVENT, onGlobalListen)
+    return () => window.removeEventListener(WAYWARD_CHAT_START_LISTENING_EVENT, onGlobalListen)
+  }, [isLoading, startVoice, voiceSupported])
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!message.trim() || isLoading) return
 
     await sendMessage(message)
     setMessage("")
+  }
+
+  const toggleVoice = () => {
+    if (voiceStatus === "listening") {
+      abortVoice()
+      return
+    }
+    if (!voiceSupported) {
+      toast({
+        title: "Voice input",
+        description: "Speech recognition is not supported in this browser.",
+        variant: "destructive",
+      })
+      return
+    }
+    startVoice()
   }
 
   const navigateToForm = (formType: string) => {
@@ -138,10 +193,26 @@ export const ChatInput: React.FC = () => {
       <Input
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Type your message..."
+        placeholder="Type or use the mic…"
         className="flex-1"
         disabled={isLoading}
       />
+
+      <Button
+        type="button"
+        size="icon"
+        variant={voiceStatus === "listening" ? "secondary" : "ghost"}
+        disabled={isLoading}
+        onClick={toggleVoice}
+        title={voiceSupported ? "Voice input" : "Voice not available"}
+        aria-label="Voice input"
+      >
+        {voiceStatus === "listening" ? (
+          <MicOff className="h-5 w-5 text-destructive" />
+        ) : (
+          <Mic className="h-5 w-5" />
+        )}
+      </Button>
 
       <Button type="submit" size="icon" disabled={isLoading || !message.trim()}>
         <PaperPlaneIcon className="h-5 w-5" />

@@ -63,5 +63,5 @@ Periodically: contradictions, stale `updated` vs newer sources, orphan pages (no
 
 ## Tooling
 
-- `pnpm wiki:verify` — ensures at least the seeded page count under `wiki/pages/` (see `scripts/verify-wiki.mjs`).
+- `pnpm wiki:verify` — prints how many `.md` files exist under `wiki/pages/` (see `scripts/verify-wiki.mjs`).
 - Set `WIKI_OBSERVABILITY=1` to append JSON lines (paths + char counts) to `wiki/.cache/context-injections.jsonl` on each Claude request that uses the wiki. This cache is gitignored and is not canonical.

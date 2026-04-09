@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,7 +15,6 @@ export const DashDashboard: React.FC = () => {
   const [location, setLocation] = useState<LocationData | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [locationPosts, setLocationPosts] = useState<LocationPost[]>([])
-  const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
@@ -26,7 +26,7 @@ export const DashDashboard: React.FC = () => {
   const locationService = LocationService.getInstance()
 
   useEffect(() => {
-    getCurrentLocation()
+    void getCurrentLocation({ silent: true })
 
     // Pulse the orb every 3 seconds
     const pulseInterval = setInterval(() => {
@@ -43,18 +43,19 @@ export const DashDashboard: React.FC = () => {
     }
   }, [location])
 
-  const getCurrentLocation = async () => {
+  const getCurrentLocation = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
     setIsLoading(true)
     setLocationError(null)
 
     try {
       const loc = await locationService.getCurrentLocation()
       setLocation(loc)
-      speak("Location acquired. Ready to assist.")
+      if (!silent) speak("Location acquired. Ready to assist.")
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown location error"
       setLocationError(errorMessage)
-      speak("Unable to access location. Please check permissions.")
+      if (!silent) speak("Unable to access location. Please check permissions.")
     } finally {
       setIsLoading(false)
     }
@@ -66,61 +67,60 @@ export const DashDashboard: React.FC = () => {
     try {
       const posts = await locationService.getLocationPosts(location)
       setLocationPosts(posts)
-      speak(`Found ${posts.length} posts at this location.`)
     } catch (error) {
       console.error("Error loading location posts:", error)
     }
   }
 
-  const speak = (text: string) => {
-    if (!voiceEnabled || !("speechSynthesis" in window)) return
+  const speak = useCallback(
+    (text: string) => {
+      if (!voiceEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) return
 
-    setIsSpeaking(true)
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 0.9
-    utterance.pitch = 1.1
-    utterance.volume = 0.8
+      setIsSpeaking(true)
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = 0.9
+      utterance.pitch = 1.1
+      utterance.volume = 0.8
 
-    utterance.onend = () => setIsSpeaking(false)
-    utterance.onerror = () => setIsSpeaking(false)
+      utterance.onend = () => setIsSpeaking(false)
+      utterance.onerror = () => setIsSpeaking(false)
 
-    speechSynthesis.speak(utterance)
-  }
+      speechSynthesis.speak(utterance)
+    },
+    [voiceEnabled],
+  )
+
+  const onDashVoiceResult = useCallback(
+    (transcript: string) => {
+      setNewPostContent(transcript)
+      speak(`I heard: ${transcript}. Would you like to post this?`)
+    },
+    [speak],
+  )
+
+  const onDashVoiceError = useCallback(() => {
+    speak("Sorry, I didn't catch that. Please try again.")
+  }, [speak])
+
+  const onDashListeningBegin = useCallback(() => {
+    speak("Listening...")
+  }, [speak])
+
+  const { start: startVoiceCapture, status: voiceRecStatus, supported: voiceRecSupported } =
+    useSpeechRecognition({
+      onListeningBegin: onDashListeningBegin,
+      onResult: onDashVoiceResult,
+      onError: onDashVoiceError,
+    })
+
+  const isListening = voiceRecStatus === "listening"
 
   const startListening = () => {
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+    if (!voiceRecSupported) {
       speak("Speech recognition not supported in this browser.")
       return
     }
-
-    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition
-    const recognition = new SpeechRecognition()
-
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.lang = "en-US"
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      speak("Listening...")
-    }
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript
-      setNewPostContent(transcript)
-      speak(`I heard: ${transcript}. Would you like to post this?`)
-    }
-
-    recognition.onerror = (event) => {
-      setIsListening(false)
-      speak("Sorry, I didn't catch that. Please try again.")
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-    }
-
-    recognition.start()
+    startVoiceCapture()
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -242,7 +242,7 @@ export const DashDashboard: React.FC = () => {
           )}
 
           <Button
-            onClick={getCurrentLocation}
+            onClick={() => void getCurrentLocation({ silent: false })}
             disabled={isLoading}
             className="mt-3 w-full bg-transparent"
             variant="outline"
