@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
+import { supabaseAdmin } from "@/lib/supabase"
 
 function baseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "")
@@ -10,6 +11,12 @@ type GoogleUserInfo = {
   email: string
   name?: string
   picture?: string
+}
+
+type GoogleTokens = {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
 }
 
 export async function GET(request: Request) {
@@ -31,6 +38,15 @@ export async function GET(request: Request) {
 
   if (!code || !state || !saved || state !== saved) {
     return NextResponse.redirect(`${baseUrl()}/?gmail_oauth_error=${encodeURIComponent("Invalid OAuth state")}`)
+  }
+
+  // Decode business_id from state
+  let business_id = "ollacart"
+  try {
+    const stateData = JSON.parse(Buffer.from(state, "base64url").toString())
+    business_id = stateData.business_id ?? "ollacart"
+  } catch {
+    // fallback to ollacart
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim()
@@ -58,7 +74,7 @@ export async function GET(request: Request) {
     )
   }
 
-  const tokens = (await tokenRes.json()) as { access_token?: string }
+  const tokens = (await tokenRes.json()) as GoogleTokens
   if (!tokens.access_token) {
     return NextResponse.redirect(`${baseUrl()}/?gmail_oauth_error=${encodeURIComponent("No access token")}`)
   }
@@ -76,11 +92,33 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${baseUrl()}/?gmail_oauth_error=${encodeURIComponent("Missing email from Google")}`)
   }
 
+  // Save tokens to Supabase email_accounts table
+  const expiresAt = tokens.expires_in
+    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    : null
+
+  await supabaseAdmin
+    .from("email_accounts")
+    .upsert(
+      {
+        business_id,
+        email_address: user.email,
+        display_name: user.name ?? user.email,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token ?? null,
+        token_expires_at: expiresAt,
+        is_active: true,
+      },
+      { onConflict: "email_address" },
+    )
+    .select()
+
   const payload = {
     email: user.email,
     name: user.name,
     picture: user.picture,
     googleSub: user.id,
+    business_id,
     linkedAt: new Date().toISOString(),
   }
 

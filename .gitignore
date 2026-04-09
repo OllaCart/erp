@@ -48,5 +48,6 @@ Thumbs.db
 # Misc
 *.pem
 .cache/
+wiki/.cache/
 
 

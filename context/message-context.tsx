@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect, useRef } from "react"
 import type { Message, FinancialTransaction, Task, CalendarEvent } from "@/types/erp"
 import { MemoryService } from "@/lib/memory-service"
 import { NLPService } from "@/lib/nlp-service"
@@ -10,6 +10,11 @@ import { TaskService } from "@/lib/task-service"
 import { CalendarService } from "@/lib/calendar-service"
 import { LandingPageService } from "@/lib/landing-page-service"
 import { ContextAnalyzer } from "@/lib/context-analyzer"
+import { GmailSyncService } from "@/lib/gmail-sync-service"
+import { WorkHierarchyService } from "@/lib/work-hierarchy-service"
+import { parseWaywardCommandBlock } from "@/lib/command-center"
+import type { MessageParam as ClaudeMessage } from "@anthropic-ai/sdk/resources/messages"
+import { useToast } from "@/hooks/use-toast"
 import { v4 as uuidv4 } from "uuid"
 
 interface ContextualSuggestion {
@@ -59,6 +64,7 @@ export const useMessages = () => {
 }
 
 export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { toast } = useToast()
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [contextualSuggestions, setContextualSuggestions] = useState<ContextualSuggestion[]>([])
@@ -67,6 +73,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const userId = "user-123" // In a real app, get from auth
   const [groupChats, setGroupChats] = useState<GroupChat[]>([])
   const [activeGroupChat, setActiveGroupChat] = useState<GroupChat | null>(null)
+  // Tracks the Claude-formatted conversation history for multi-turn context
+  const claudeHistoryRef = useRef<ClaudeMessage[]>([])
 
   // Load initial welcome message
   useEffect(() => {
@@ -75,7 +83,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         {
           id: "1",
           userId,
-          text: "Hello! I'm your personal ERP assistant. How can I help you today?",
+          text: "Hello! I'm Dash, your personal ERP assistant. How can I help you today?",
           sender: "assistant",
           timestamp: new Date(),
         },
@@ -86,7 +94,6 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const sendMessage = async (text: string) => {
     if (!text.trim()) return
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       userId,
@@ -98,30 +105,23 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
 
+    // Placeholder message for streaming
+    const assistantId = uuidv4()
+    setMessages((prev) => [
+      ...prev,
+      { id: assistantId, userId, text: "", sender: "assistant", timestamp: new Date() },
+    ])
+
     try {
-      // Parse intent using NLP
-      const intent = await NLPService.parseIntent(text)
+      // ── Side-effect: NLP + context analysis (non-blocking) ──────────────
+      NLPService.parseIntent(text).then((intent) => {
+        // intent available for future use / telemetry
+      })
 
-      // Store the message with intent
-      const messageWithIntent: Message = {
-        ...userMessage,
-        intent,
-      }
-
-      // Analyze for contextual information
-      const contextData = await ContextAnalyzer.analyzeMessage(userId, text)
-
-      // Process the message based on intent
-      let response: Message
-
-      if (contextData) {
-        // We have contextual data, handle it
+      ContextAnalyzer.analyzeMessage(userId, text).then((contextData) => {
+        if (!contextData) return
         setCurrentContextId(contextData.id)
-
-        // Set follow-up questions
         setFollowUpQuestions(contextData.followUpQuestions)
-
-        // Create contextual suggestions
         const suggestions: ContextualSuggestion[] = contextData.suggestedTasks.map((task) => ({
           id: uuidv4(),
           type: "task",
@@ -129,78 +129,193 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           description: task.description,
           accepted: false,
         }))
-
         setContextualSuggestions(suggestions)
+      })
 
-        // Generate response based on context type
-        let responseText = ""
+      // ── Gather cross-module context snapshot ────────────────────────────
+      const workHierarchy = WorkHierarchyService.getState(userId)
 
-        switch (contextData.type) {
-          case "travel":
-            responseText = `I've created a travel plan for your trip to ${contextData.name.replace("Trip to ", "")}. I've added this to your budget and created some tasks to help you prepare.`
-            break
-          case "finance":
-            responseText = `I've created a financial plan based on your message. I've set up budget tracking and added some tasks to help you manage your finances.`
-            break
-          case "event":
-            responseText = `I've scheduled the event and created some preparation tasks for you. It's been added to your calendar.`
-            break
-          default:
-            responseText = `I've processed your request and created some related tasks and items.`
-        }
+      const [tasks, upcomingEvents, recentMemories, gmailMessages] = await Promise.all([
+        // Merge flat TaskService tasks with hierarchy tasks (hierarchy takes precedence)
+        Promise.resolve(
+          workHierarchy.tasks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            priority: t.priority,
+            dueDate: t.dueDate?.toISOString(),
+            projectId: t.projectId,
+            dependsOnTaskIds: t.dependsOnTaskIds,
+            tags: t.tags,
+          })),
+        ).then(async (hierarchyTasks) => {
+          const flat = await TaskService.getUserTasks(userId)
+          const flatMapped = flat
+            .filter((t) => !hierarchyTasks.some((h) => h.id === t.id))
+            .map((t) => ({
+              id: t.id,
+              title: t.title,
+              status: t.status,
+              priority: t.priority,
+              dueDate: t.dueDate?.toISOString(),
+              projectId: t.projectId,
+              dependsOnTaskIds: t.dependsOnTaskIds,
+              tags: t.tags,
+            }))
+          return [...hierarchyTasks, ...flatMapped]
+        }),
+        CalendarService.getUpcomingEvents(userId, 10).then((es) =>
+          es.map((e) => ({
+            id: e.id,
+            title: e.title,
+            type: e.type,
+            startDate: e.startDate.toISOString(),
+            endDate: e.endDate?.toISOString(),
+            location: e.location,
+          })),
+        ),
+        MemoryService.getUserMemories(userId).then((ms) =>
+          ms
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 5)
+            .map((m) => ({
+              text: m.text,
+              tags: m.tags,
+              emotion: m.emotion ?? "neutral",
+              timestamp: new Date(m.timestamp).toISOString(),
+            })),
+        ),
+        GmailSyncService.getRecentMessages(),
+      ])
 
-        // Add follow-up questions if any
-        if (contextData.followUpQuestions.length > 0) {
-          responseText += `\n\nI have a few questions to help complete your plan:\n`
-          contextData.followUpQuestions.forEach((question, index) => {
-            responseText += `${index + 1}. ${question}\n`
-          })
-        }
+      const initiatives = workHierarchy.initiatives.map((i) => ({
+        id: i.id,
+        name: i.name,
+        description: i.description,
+        status: i.status,
+      }))
 
-        response = {
-          id: uuidv4(),
+      const projects = workHierarchy.projects.map((p) => ({
+        id: p.id,
+        initiativeId: p.initiativeId,
+        name: p.name,
+        description: p.description,
+        status: p.status,
+      }))
+
+      // ── Build messages for API (only commit to ref after success) ───────
+      const userTurn: ClaudeMessage = { role: "user", content: text }
+      const messagesForApi = [...claudeHistoryRef.current, userTurn]
+
+      // ── Stream from Claude ───────────────────────────────────────────────
+      const response = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
           userId,
-          text: responseText,
-          sender: "assistant",
-          timestamp: new Date(),
+          moduleContext: { tasks, upcomingEvents, recentMemories, gmailMessages, initiatives, projects },
+        }),
+      })
+
+      if (!response.ok) {
+        let desc = `Request failed (${response.status})`
+        try {
+          const err = (await response.json()) as { error?: string; code?: string }
+          if (err?.error) desc = err.error
+          if (err?.code) desc = `${desc} (${err.code})`
+        } catch {
+          /* non-JSON body */
         }
-      } else {
-        // No contextual data, process normally
-        switch (intent.type) {
-          case "command":
-            response = await handleCommand(messageWithIntent)
+        throw new Error(desc)
+      }
+
+      if (!response.body) {
+        throw new Error("No response body from chat")
+      }
+
+      // ── Read SSE with line buffering (chunks may split mid-line) ─────────
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ""
+      let lineBuffer = ""
+      let readerDone = false
+
+      while (!readerDone) {
+        const { done, value } = await reader.read()
+        readerDone = done
+        if (value) lineBuffer += decoder.decode(value, { stream: !readerDone })
+
+        const lines = lineBuffer.split("\n")
+        lineBuffer = lines.pop() ?? ""
+
+        let sseClosed = false
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          const payload = line.slice(6).trim()
+          if (payload === "[DONE]") {
+            sseClosed = true
             break
-          case "query":
-            response = await handleQuery(messageWithIntent)
-            break
-          default:
-            response = await handleConversation(messageWithIntent)
+          }
+          let parsed: { text?: string; error?: string }
+          try {
+            parsed = JSON.parse(payload) as { text?: string; error?: string }
+          } catch {
+            continue
+          }
+          if (typeof parsed.error === "string") {
+            sseClosed = true
+            throw new Error(parsed.error)
+          }
+          if (typeof parsed.text === "string") {
+            fullText += parsed.text
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, text: fullText } : m)),
+            )
+          }
+        }
+        if (sseClosed) break
+      }
+
+      const { commands, visibleText } = parseWaywardCommandBlock(fullText)
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, text: visibleText } : m)),
+      )
+      for (const cmd of commands) {
+        if (cmd.type === "navigate" && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("wayward-navigate", { detail: { tab: cmd.tab } }),
+          )
         }
       }
 
-      // Add assistant response
-      setMessages((prev) => [...prev, response])
+      // ── Commit user + assistant turns (strip UI command block from assistant)
+      claudeHistoryRef.current = [
+        ...claudeHistoryRef.current,
+        userTurn,
+        { role: "assistant", content: visibleText },
+      ]
 
-      // Store the conversation in memory
+      // ── Persist to memory ────────────────────────────────────────────────
       await MemoryService.storeMemory({
         userId,
-        text: `User: ${text}\nAssistant: ${response.text}`,
+        text: `User: ${text}\nAssistant: ${visibleText}`,
         timestamp: new Date(),
         tags: ["conversation"],
         emotion: "neutral",
       })
     } catch (error) {
-      console.error("Error processing message:", error)
-
-      const errorMessage: Message = {
-        id: Date.now().toString() + "-error",
-        userId,
-        text: "Sorry, I encountered an error processing your message.",
-        sender: "assistant",
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, errorMessage])
+      console.error("Error calling Claude:", error)
+      const fallback =
+        error instanceof Error ? error.message : "Sorry, I encountered an error. Please try again."
+      toast({
+        title: "Chat error",
+        description: fallback.length > 220 ? `${fallback.slice(0, 220)}…` : fallback,
+        variant: "destructive",
+      })
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, text: fallback } : m)),
+      )
     } finally {
       setIsLoading(false)
     }
@@ -846,7 +961,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       {
         id: "1",
         userId,
-        text: "Hello! I'm your personal ERP assistant. How can I help you today?",
+        text: "Hello! I'm Dash, your personal ERP assistant. How can I help you today?",
         sender: "assistant",
         timestamp: new Date(),
       },
@@ -854,6 +969,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setContextualSuggestions([])
     setFollowUpQuestions([])
     setCurrentContextId(null)
+    claudeHistoryRef.current = []
   }
 
   return (

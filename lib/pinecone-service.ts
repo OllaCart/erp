@@ -15,7 +15,9 @@ export class PineconeService {
     this.apiKey = config.pinecone.apiKey
     this.environment = config.pinecone.environment
     this.indexName = config.pinecone.indexName
-    console.log(`Initialized Pinecone with API key: ${this.apiKey.substring(0, 5)}...`)
+    if (this.apiKey) {
+      console.log("PineconeService initialized (vector store enabled)")
+    }
   }
 
   // Generate a simple vector embedding (mock)
