@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { callClaudeJSON } from "@/lib/claude"
 import type { DbTask, BusinessId } from "@/types/db"
+import { sortTasksForDisplay } from "@/lib/task-sort"
 
 interface PrioritizeResult {
   task_id: string
@@ -47,7 +48,13 @@ export async function POST(request: Request) {
   }
 
   const taskList = (tasks as DbTask[])
-    .map((t) => `[${t.id}] [${t.business_id}] [${t.category ?? "general"}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ""}`)
+    .map((t) => {
+      const sched =
+        t.scheduled_start != null
+          ? ` [scheduled ${t.scheduled_start}]`
+          : " [needs scheduling]"
+      return `[${t.id}] [${t.business_id}] [${t.category ?? "general"}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ""}${sched}`
+    })
     .join("\n")
 
   const systemPrompt = `You are Dash, prioritizing tasks for a founder who runs three startups.
@@ -59,6 +66,7 @@ Priority rules:
 - Support tickets from paying customers are high priority
 - UnbeatableLoans tasks happen at night — don't mark them urgent during day
 - OllaCart Rye API integration is the current active afternoon project
+- Tasks marked [needs scheduling] have no calendar block yet — favor giving them actionable priority when they are important
 
 Return ONLY a valid JSON array, no markdown:
 [{ "task_id": "uuid", "priority": "urgent|high|medium|low", "reasoning": "one sentence" }]`
@@ -95,16 +103,11 @@ Return ONLY a valid JSON array, no markdown:
   )
 
   // Return updated tasks in priority order
-  const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 }
   const updatedTasks = (tasks as DbTask[]).map((t) => {
     const ranked = rankings.find((r) => r.task_id === t.id)
     return ranked ? { ...t, priority: ranked.priority, _reasoning: ranked.reasoning } : t
   })
-  updatedTasks.sort(
-    (a, b) =>
-      priorityOrder[a.priority as keyof typeof priorityOrder] -
-      priorityOrder[b.priority as keyof typeof priorityOrder],
-  )
+  const sorted = sortTasksForDisplay(updatedTasks)
 
-  return NextResponse.json({ tasks: updatedTasks, count: updatedTasks.length })
+  return NextResponse.json({ tasks: sorted, count: sorted.length })
 }

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { CalendarDaysIcon, CheckSquareIcon, InboxIcon, MapPinIcon, MessageSquareIcon, RefreshCwIcon } from "lucide-react"
 import type { DbTask } from "@/types/db"
+import { sortTasksForDisplay } from "@/lib/task-sort"
 import { dispatchWaywardNavigate } from "@/lib/wayward-shell-events"
 import { LocationService, type LocationData, type LocationPost } from "@/lib/location-service"
 
@@ -57,7 +58,7 @@ export const HomeOverview: React.FC = () => {
         setTasksErr(typeof tj.error === "string" ? tj.error : "Could not load tasks")
         setTasks([])
       } else {
-        setTasks((tj.tasks as DbTask[]) ?? [])
+        setTasks(sortTasksForDisplay((tj.tasks as DbTask[]) ?? []).slice(0, 8))
       }
     } catch {
       setTasksErr("Could not load tasks")

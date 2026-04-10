@@ -19,8 +19,11 @@ import {
   Bot,
   MessageSquare,
   Pencil,
+  X,
 } from "lucide-react"
 import type { DbTask, BusinessId, TaskPriority, TaskStatus } from "@/types/db"
+import { sortTasksForDisplay } from "@/lib/task-sort"
+import { Label } from "@/components/ui/label"
 
 const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string }> = [
   { id: "all", label: "All", color: "bg-zinc-500" },
@@ -28,13 +31,6 @@ const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string }
   { id: "unbeatableloans", label: "UnbeatableLoans", color: "bg-amber-500" },
   { id: "ollacart", label: "OllaCart", color: "bg-orange-500" },
 ]
-
-const PRIORITY_ORDER: Record<TaskPriority, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-}
 
 const PRIORITY_STYLES: Record<TaskPriority, string> = {
   urgent: "bg-red-100 text-red-700 border-red-200",
@@ -58,6 +54,27 @@ const BUSINESS_BADGE: Record<BusinessId, string> = {
   personal: "bg-zinc-100 text-zinc-600",
 }
 
+function defaultScheduleInputs() {
+  const next = new Date(Date.now() + 30 * 60 * 1000)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return {
+    date: `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`,
+    time: `${pad(next.getHours())}:${pad(next.getMinutes())}`,
+  }
+}
+
+function formatScheduleRange(startIso: string, endIso: string): string {
+  const s = new Date(startIso)
+  const e = new Date(endIso)
+  const sameDay = s.toDateString() === e.toDateString()
+  const dOpts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" }
+  const tOpts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" }
+  if (sameDay) {
+    return `${s.toLocaleString("en-US", { ...dOpts, ...tOpts })} — ${e.toLocaleString("en-US", tOpts)}`
+  }
+  return `${s.toLocaleString("en-US", { ...dOpts, ...tOpts })} — ${e.toLocaleString("en-US", { ...dOpts, ...tOpts })}`
+}
+
 export function TaskView() {
   const { toast } = useToast()
   const [tasks, setTasks] = useState<DbTask[]>([])
@@ -76,14 +93,7 @@ export function TaskView() {
       const res = await fetch(`/api/tasks?${params}`)
       if (!res.ok) throw new Error("Failed to fetch tasks")
       const data = await res.json()
-      setTasks(
-        (data.tasks as DbTask[]).sort(
-          (a, b) =>
-            (PRIORITY_ORDER[a.priority as TaskPriority] ?? 99) -
-            (PRIORITY_ORDER[b.priority as TaskPriority] ?? 99) ||
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-        ),
-      )
+      setTasks(sortTasksForDisplay((data.tasks as DbTask[]) ?? []))
     } catch (err) {
       console.error(err)
     } finally {
@@ -127,13 +137,7 @@ export function TaskView() {
       })
       if (!res.ok) throw new Error("Failed to create task")
       const { task } = await res.json()
-      setTasks((prev) =>
-        [task as DbTask, ...prev].sort(
-          (a, b) =>
-            (PRIORITY_ORDER[a.priority as TaskPriority] ?? 99) -
-            (PRIORITY_ORDER[b.priority as TaskPriority] ?? 99),
-        ),
-      )
+      setTasks((prev) => sortTasksForDisplay([task as DbTask, ...prev]))
       setQuickAdd("")
     } catch (err) {
       console.error(err)
@@ -170,7 +174,7 @@ export function TaskView() {
         })
         return
       }
-      setTasks(body.tasks ?? [])
+      setTasks(sortTasksForDisplay((body.tasks as DbTask[]) ?? []))
     } catch (err) {
       console.error(err)
       toast({
@@ -190,6 +194,12 @@ export function TaskView() {
     { priority: "medium", label: "Medium" },
     { priority: "low", label: "Low" },
   ]
+
+  const mergeTaskIntoList = useCallback((updated: DbTask) => {
+    setTasks((prev) =>
+      sortTasksForDisplay(prev.map((t) => (t.id === updated.id ? updated : t))),
+    )
+  }, [])
 
   const activeTasks = tasks.filter((t) => t.status !== "done" && t.status !== "archived")
   const doneTasks = tasks.filter((t) => t.status === "done")
@@ -281,6 +291,7 @@ export function TaskView() {
                         setExpandedId(expandedId === task.id ? null : task.id)
                       }
                       onToggleDone={() => toggleDone(task)}
+                      onTaskUpdated={mergeTaskIntoList}
                     />
                   ))}
                 </div>
@@ -303,6 +314,7 @@ export function TaskView() {
                   expanded={false}
                   onToggleExpand={() => {}}
                   onToggleDone={() => toggleDone(task)}
+                  onTaskUpdated={mergeTaskIntoList}
                 />
               ))}
             </div>
@@ -318,13 +330,102 @@ function TaskRow({
   expanded,
   onToggleExpand,
   onToggleDone,
+  onTaskUpdated,
 }: {
   task: DbTask
   expanded: boolean
   onToggleExpand: () => void
   onToggleDone: () => void
+  onTaskUpdated: (t: DbTask) => void
 }) {
+  const { toast } = useToast()
   const isDone = task.status === "done"
+  const isScheduled = Boolean(task.scheduled_start && task.scheduled_end)
+
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState("")
+  const [scheduleTime, setScheduleTime] = useState("")
+  const [durationMin, setDurationMin] = useState(30)
+  const [isScheduling, setIsScheduling] = useState(false)
+
+  useEffect(() => {
+    const d = defaultScheduleInputs()
+    setScheduleDate(d.date)
+    setScheduleTime(d.time)
+    setShowScheduleForm(false)
+  }, [task.id, task.scheduled_start])
+
+  async function submitSchedule() {
+    if (!scheduleDate || !scheduleTime) return
+    const startLocal = new Date(`${scheduleDate}T${scheduleTime}:00`)
+    if (Number.isNaN(startLocal.getTime())) {
+      toast({
+        title: "Invalid date or time",
+        variant: "destructive",
+      })
+      return
+    }
+    const endLocal = new Date(startLocal.getTime() + durationMin * 60 * 1000)
+    setIsScheduling(true)
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start_time: startLocal.toISOString(),
+          end_time: endLocal.toISOString(),
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        task?: DbTask
+        error?: string
+        code?: string
+      }
+      if (!res.ok) {
+        toast({
+          title: "Could not schedule",
+          description: data.error ?? "Request failed",
+          variant: "destructive",
+        })
+        return
+      }
+      if (data.task) onTaskUpdated(data.task)
+      setShowScheduleForm(false)
+      toast({ title: "Added to calendar" })
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
+  async function clearSchedule() {
+    setIsScheduling(true)
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/schedule`, { method: "DELETE" })
+      const data = (await res.json().catch(() => ({}))) as {
+        task?: DbTask
+        error?: string
+      }
+      if (!res.ok) {
+        toast({
+          title: "Could not unschedule",
+          description: data.error ?? "Request failed",
+          variant: "destructive",
+        })
+        return
+      }
+      if (data.task) onTaskUpdated(data.task)
+      toast({ title: "Removed from calendar" })
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
+  function openScheduleForm() {
+    const d = defaultScheduleInputs()
+    setScheduleDate(d.date)
+    setScheduleTime(d.time)
+    setShowScheduleForm(true)
+  }
 
   return (
     <div className="rounded-lg border bg-card hover:bg-accent/30 transition-colors">
@@ -413,6 +514,130 @@ function TaskRow({
           </button>
         )}
       </div>
+
+      {!isDone && (
+        <div className="border-t border-border/80 bg-muted/25 px-3 py-2.5 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            {isScheduled && task.scheduled_start && task.scheduled_end ? (
+              <>
+                <span className="text-xs text-foreground font-medium">
+                  {formatScheduleRange(task.scheduled_start, task.scheduled_end)}
+                </span>
+                <Badge variant="secondary" className="text-[10px] font-normal">
+                  Calendar
+                </Badge>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive ml-auto"
+                  disabled={isScheduling}
+                  onClick={() => void clearSchedule()}
+                >
+                  {isScheduling ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <>
+                      <X className="h-3 w-3 mr-1" />
+                      Unschedule
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                {!isScheduled && (
+                  <Badge variant="outline" className="text-[10px] font-normal border-dashed">
+                    Needs time
+                  </Badge>
+                )}
+                {!showScheduleForm ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 text-xs ml-auto"
+                    onClick={openScheduleForm}
+                  >
+                    Schedule
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+
+          {!isScheduled && showScheduleForm && (
+            <div className="flex flex-col gap-2 pt-1">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor={`d-${task.id}`} className="text-[10px] uppercase text-muted-foreground">
+                    Date
+                  </Label>
+                  <Input
+                    id={`d-${task.id}`}
+                    type="date"
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    className="h-8 text-xs w-[140px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`t-${task.id}`} className="text-[10px] uppercase text-muted-foreground">
+                    Start
+                  </Label>
+                  <Input
+                    id={`t-${task.id}`}
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    className="h-8 text-xs w-[110px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`dur-${task.id}`} className="text-[10px] uppercase text-muted-foreground">
+                    Duration
+                  </Label>
+                  <select
+                    id={`dur-${task.id}`}
+                    value={durationMin}
+                    onChange={(e) => setDurationMin(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs w-[100px]"
+                  >
+                    <option value={15}>15 min</option>
+                    <option value={30}>30 min</option>
+                    <option value={45}>45 min</option>
+                    <option value={60}>1 hr</option>
+                    <option value={90}>1.5 hr</option>
+                    <option value={120}>2 hr</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={isScheduling}
+                  onClick={() => void submitSchedule()}
+                >
+                  {isScheduling ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save to calendar"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={isScheduling}
+                  onClick={() => setShowScheduleForm(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

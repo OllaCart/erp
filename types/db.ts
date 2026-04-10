@@ -29,6 +29,10 @@ export interface DbTask {
   source_id: string | null
   assignee: string
   due_date: string | null      // ISO date string "YYYY-MM-DD"
+  /** Calendar time block start (ISO); unscheduled tasks sort above scheduled within same priority */
+  scheduled_start: string | null
+  scheduled_end: string | null
+  calendar_event_id: string | null
   completed_at: string | null  // ISO timestamp
   notes: string | null
   created_at: string
