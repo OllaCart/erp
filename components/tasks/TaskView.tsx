@@ -30,8 +30,9 @@ import { Label } from "@/components/ui/label"
 const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string }> = [
   { id: "all", label: "All", color: "bg-zinc-500" },
   { id: "swiftfi", label: "SwiftFi", color: "bg-blue-500" },
-  { id: "unbeatableloans", label: "UnbeatableLoans", color: "bg-amber-500" },
+  { id: "unbeatableloans", label: "Mortgage", color: "bg-amber-500" },
   { id: "ollacart", label: "OllaCart", color: "bg-orange-500" },
+  { id: "personal", label: "Personal", color: "bg-purple-500" },
 ]
 
 const PRIORITY_STYLES: Record<TaskPriority, string> = {
@@ -53,7 +54,7 @@ const BUSINESS_BADGE: Record<BusinessId, string> = {
   swiftfi: "bg-blue-100 text-blue-700",
   unbeatableloans: "bg-amber-100 text-amber-700",
   ollacart: "bg-orange-100 text-orange-700",
-  personal: "bg-zinc-100 text-zinc-600",
+  personal: "bg-purple-100 text-purple-700",
 }
 
 function defaultScheduleInputs() {
@@ -552,7 +553,7 @@ function TaskRow({
             <span
               className={`text-xs px-1.5 py-0.5 rounded font-medium ${BUSINESS_BADGE[task.business_id]}`}
             >
-              {task.business_id === "unbeatableloans" ? "UBL" : task.business_id}
+              {task.business_id === "unbeatableloans" ? "Mortgage" : task.business_id}
             </span>
 
             {/* Priority badge */}
