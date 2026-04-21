@@ -20,8 +20,10 @@ import {
   MessageSquare,
   Pencil,
   X,
+  Save,
 } from "lucide-react"
-import type { DbTask, BusinessId, TaskPriority, TaskStatus } from "@/types/db"
+import { Textarea } from "@/components/ui/textarea"
+import type { DbTask, BusinessId, TaskPriority, TaskStatus, TaskCategory } from "@/types/db"
 import { sortTasksForDisplay } from "@/lib/task-sort"
 import { Label } from "@/components/ui/label"
 
@@ -348,6 +350,21 @@ function TaskRow({
   const [durationMin, setDurationMin] = useState(30)
   const [isScheduling, setIsScheduling] = useState(false)
 
+  // Edit state
+  const [showEdit, setShowEdit] = useState(false)
+  const [editTitle, setEditTitle] = useState(task.title)
+  const [editDescription, setEditDescription] = useState(task.description ?? "")
+  const [editPriority, setEditPriority] = useState<TaskPriority>(task.priority)
+  const [editStatus, setEditStatus] = useState<TaskStatus>(task.status)
+  const [editDueDate, setEditDueDate] = useState(task.due_date ?? "")
+  const [editNotes, setEditNotes] = useState(task.notes ?? "")
+  const [editCategory, setEditCategory] = useState<TaskCategory | "">(task.category ?? "")
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // AI agent state
+  const [isAssigningAI, setIsAssigningAI] = useState(false)
+  const [aiNote, setAiNote] = useState<string | null>(null)
+
   useEffect(() => {
     const d = defaultScheduleInputs()
     setScheduleDate(d.date)
@@ -427,6 +444,81 @@ function TaskRow({
     setShowScheduleForm(true)
   }
 
+  function openEdit() {
+    setEditTitle(task.title)
+    setEditDescription(task.description ?? "")
+    setEditPriority(task.priority)
+    setEditStatus(task.status)
+    setEditDueDate(task.due_date ?? "")
+    setEditNotes(task.notes ?? "")
+    setEditCategory(task.category ?? "")
+    setShowEdit(true)
+  }
+
+  async function saveEdit() {
+    if (!editTitle.trim()) return
+    setIsSavingEdit(true)
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          priority: editPriority,
+          status: editStatus,
+          due_date: editDueDate || null,
+          notes: editNotes.trim() || null,
+          category: editCategory || null,
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { task?: DbTask; error?: string }
+      if (!res.ok) {
+        toast({ title: "Could not save", description: data.error ?? "Request failed", variant: "destructive" })
+        return
+      }
+      if (data.task) onTaskUpdated(data.task)
+      setShowEdit(false)
+      toast({ title: "Task updated" })
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  async function assignToAI() {
+    setIsAssigningAI(true)
+    setAiNote(null)
+    try {
+      // Set assignee to "claude"
+      const patchRes = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignee: "claude" }),
+      })
+      const patchData = (await patchRes.json().catch(() => ({}))) as { task?: DbTask }
+      if (patchData.task) onTaskUpdated(patchData.task)
+
+      // Ask Claude to analyze the task
+      const claudeRes = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `I've assigned you this task: "${task.title}"${task.description ? `\n\nDescription: ${task.description}` : ""}${task.notes ? `\n\nNotes: ${task.notes}` : ""}\n\nIn 2-3 sentences: what is the most important next action to make progress, and any blockers to anticipate?`,
+          business_id: task.business_id,
+          module: "tasks",
+          stream: false,
+        }),
+      })
+      const claudeData = (await claudeRes.json().catch(() => ({}))) as { text?: string }
+      if (claudeData.text) setAiNote(claudeData.text)
+      toast({ title: "Assigned to Claude" })
+    } catch {
+      toast({ title: "Failed to assign to AI", variant: "destructive" })
+    } finally {
+      setIsAssigningAI(false)
+    }
+  }
+
   return (
     <div className="rounded-lg border bg-card hover:bg-accent/30 transition-colors">
       <div className="flex items-start gap-3 p-3">
@@ -490,8 +582,8 @@ function TaskRow({
             </p>
           )}
 
-          {/* Expanded details */}
-          {expanded && (
+          {/* Expanded details or edit form */}
+          {expanded && !showEdit && (
             <div className="mt-2 text-sm text-muted-foreground space-y-1 border-t pt-2">
               {task.description && <p>{task.description}</p>}
               {task.notes && (
@@ -500,19 +592,149 @@ function TaskRow({
               <p className="text-xs">
                 Created {new Date(task.created_at).toLocaleDateString()} · Assignee: {task.assignee}
               </p>
+              {aiNote && (
+                <div className="mt-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-2 text-xs text-blue-800 dark:text-blue-200 flex gap-1.5">
+                  <Bot className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
+                  <span>{aiNote}</span>
+                </div>
+              )}
+              <button
+                onClick={openEdit}
+                className="text-xs text-primary hover:underline mt-1 inline-block"
+              >
+                Edit task
+              </button>
+            </div>
+          )}
+
+          {/* Inline edit form */}
+          {showEdit && (
+            <div className="mt-2 border-t pt-2 space-y-2">
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Task title"
+                className="h-8 text-sm"
+              />
+              <Textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Description (optional)"
+                className="text-xs min-h-[60px] resize-none"
+              />
+              <div className="flex flex-wrap gap-2">
+                <div className="space-y-0.5">
+                  <Label className="text-[10px] uppercase text-muted-foreground">Priority</Label>
+                  <select
+                    value={editPriority}
+                    onChange={(e) => setEditPriority(e.target.value as TaskPriority)}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs w-[90px]"
+                  >
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[10px] uppercase text-muted-foreground">Status</Label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as TaskStatus)}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs w-[110px]"
+                  >
+                    <option value="todo">Todo</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[10px] uppercase text-muted-foreground">Category</Label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as TaskCategory | "")}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs w-[100px]"
+                  >
+                    <option value="">None</option>
+                    <option value="dev">Dev</option>
+                    <option value="outreach">Outreach</option>
+                    <option value="pitch">Pitch</option>
+                    <option value="support">Support</option>
+                    <option value="ops">Ops</option>
+                    <option value="finance">Finance</option>
+                  </select>
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[10px] uppercase text-muted-foreground">Due date</Label>
+                  <Input
+                    type="date"
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    className="h-8 text-xs w-[140px]"
+                  />
+                </div>
+              </div>
+              <Textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Notes (optional)"
+                className="text-xs min-h-[48px] resize-none"
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  disabled={isSavingEdit || !editTitle.trim()}
+                  onClick={() => void saveEdit()}
+                >
+                  {isSavingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={isSavingEdit}
+                  onClick={() => setShowEdit(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Expand toggle */}
-        {(task.description || task.notes) && (
+        {/* Action buttons */}
+        <div className="flex items-start gap-1 shrink-0">
+          {/* AI agent assignment */}
           <button
-            onClick={onToggleExpand}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => task.assignee === "claude" ? null : void assignToAI()}
+            disabled={isAssigningAI}
+            title={task.assignee === "claude" ? "Assigned to Claude" : "Assign to AI agent"}
+            className={`p-1 rounded transition-colors ${
+              task.assignee === "claude"
+                ? "text-blue-500"
+                : "text-muted-foreground hover:text-blue-500"
+            }`}
+          >
+            {isAssigningAI ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Bot className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {/* Edit toggle */}
+          <button
+            onClick={() => showEdit ? setShowEdit(false) : openEdit()}
+            title="Edit task"
+            className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-        )}
+        </div>
       </div>
 
       {!isDone && (
