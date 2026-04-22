@@ -23,16 +23,19 @@ import {
   Save,
 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
-import type { DbTask, BusinessId, TaskPriority, TaskStatus, TaskCategory } from "@/types/db"
+import type { DbTask, BusinessId, TaskPriority, TaskStatus, TaskCategory, RecurrenceRule } from "@/types/db"
 import { sortTasksForDisplay } from "@/lib/task-sort"
 import { Label } from "@/components/ui/label"
+import { RefreshCw } from "lucide-react"
 
-const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string }> = [
-  { id: "all", label: "All", color: "bg-zinc-500" },
-  { id: "swiftfi", label: "SwiftFi", color: "bg-blue-500" },
-  { id: "unbeatableloans", label: "Mortgage", color: "bg-amber-500" },
-  { id: "ollacart", label: "OllaCart", color: "bg-orange-500" },
-  { id: "personal", label: "Personal", color: "bg-purple-500" },
+const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string; subtitle?: string }> = [
+  { id: "all",            label: "All",              color: "bg-zinc-500" },
+  { id: "personal",       label: "Personal",          color: "bg-purple-500" },
+  { id: "mortgage",       label: "Mortgage Job",      color: "bg-green-600",  subtitle: "employment" },
+  { id: "swiftfi",        label: "SwiftFi",           color: "bg-blue-500",   subtitle: "startup" },
+  { id: "unbeatableloans",label: "UnbeatableLoans",   color: "bg-amber-500",  subtitle: "startup" },
+  { id: "ollacart",       label: "OllaCart",          color: "bg-orange-500", subtitle: "startup" },
+  { id: "projects",       label: "Projects",          color: "bg-indigo-500", subtitle: "dev" },
 ]
 
 const PRIORITY_STYLES: Record<TaskPriority, string> = {
@@ -51,10 +54,28 @@ const SOURCE_ICON: Record<string, React.ReactNode> = {
 }
 
 const BUSINESS_BADGE: Record<BusinessId, string> = {
-  swiftfi: "bg-blue-100 text-blue-700",
+  swiftfi:         "bg-blue-100 text-blue-700",
   unbeatableloans: "bg-amber-100 text-amber-700",
-  ollacart: "bg-orange-100 text-orange-700",
-  personal: "bg-purple-100 text-purple-700",
+  ollacart:        "bg-orange-100 text-orange-700",
+  personal:        "bg-purple-100 text-purple-700",
+  mortgage:        "bg-green-100 text-green-700",
+  projects:        "bg-indigo-100 text-indigo-700",
+}
+
+const BUSINESS_SHORT: Record<BusinessId, string> = {
+  swiftfi:         "SwiftFi",
+  unbeatableloans: "UBL",
+  ollacart:        "OllaCart",
+  personal:        "Personal",
+  mortgage:        "Mortgage",
+  projects:        "Projects",
+}
+
+const RECURRENCE_LABEL: Record<RecurrenceRule, string> = {
+  daily:   "Daily",
+  weekly:  "Weekly",
+  monthly: "Monthly",
+  yearly:  "Yearly",
 }
 
 function defaultScheduleInputs() {
@@ -210,25 +231,28 @@ export function TaskView() {
   return (
     <div className="flex flex-col h-full gap-4 p-4">
       {/* Business tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {BUSINESSES.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setActiveBusiness(b.id)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeBusiness === b.id
-                ? `${b.color} text-white`
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            {b.label}
-            {b.id !== "all" && (
-              <span className="ml-1.5 opacity-75 text-xs">
-                {tasks.filter((t) => t.business_id === b.id && t.status !== "done" && t.status !== "archived").length}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="flex gap-1.5 flex-wrap">
+        {BUSINESSES.map((b) => {
+          const count = b.id !== "all"
+            ? tasks.filter((t) => t.business_id === b.id && t.status !== "done" && t.status !== "archived").length
+            : null
+          return (
+            <button
+              key={b.id}
+              onClick={() => setActiveBusiness(b.id)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                activeBusiness === b.id
+                  ? `${b.color} text-white`
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {b.label}
+              {count !== null && (
+                <span className="ml-1.5 opacity-75 text-xs">{count}</span>
+              )}
+            </button>
+          )
+        })}
 
         <Button
           variant="outline"
@@ -360,6 +384,8 @@ function TaskRow({
   const [editDueDate, setEditDueDate] = useState(task.due_date ?? "")
   const [editNotes, setEditNotes] = useState(task.notes ?? "")
   const [editCategory, setEditCategory] = useState<TaskCategory | "">(task.category ?? "")
+  const [editRecurrence, setEditRecurrence] = useState<RecurrenceRule | "">(task.recurrence_rule ?? "")
+  const [editRecurrenceInterval, setEditRecurrenceInterval] = useState(task.recurrence_interval ?? 1)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   // AI agent state
@@ -471,6 +497,8 @@ function TaskRow({
           due_date: editDueDate || null,
           notes: editNotes.trim() || null,
           category: editCategory || null,
+          recurrence_rule: editRecurrence || null,
+          recurrence_interval: editRecurrence ? editRecurrenceInterval : null,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as { task?: DbTask; error?: string }
@@ -553,7 +581,7 @@ function TaskRow({
             <span
               className={`text-xs px-1.5 py-0.5 rounded font-medium ${BUSINESS_BADGE[task.business_id]}`}
             >
-              {task.business_id === "unbeatableloans" ? "Mortgage" : task.business_id}
+              {BUSINESS_SHORT[task.business_id] ?? task.business_id}
             </span>
 
             {/* Priority badge */}
@@ -576,10 +604,18 @@ function TaskRow({
             )}
           </div>
 
-          {/* Due date */}
-          {task.due_date && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Due {new Date(task.due_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          {/* Due date + recurrence */}
+          {(task.due_date || task.recurrence_rule) && (
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+              {task.due_date && (
+                <span>Due {new Date(task.due_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              )}
+              {task.recurrence_rule && (
+                <span className="flex items-center gap-0.5 text-indigo-500">
+                  <RefreshCw className="h-2.5 w-2.5" />
+                  {RECURRENCE_LABEL[task.recurrence_rule]}{task.recurrence_interval && task.recurrence_interval > 1 ? ` ×${task.recurrence_interval}` : ""}
+                </span>
+              )}
             </p>
           )}
 
@@ -675,6 +711,32 @@ function TaskRow({
                     className="h-8 text-xs w-[140px]"
                   />
                 </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[10px] uppercase text-muted-foreground">Repeat</Label>
+                  <select
+                    value={editRecurrence}
+                    onChange={(e) => setEditRecurrence(e.target.value as RecurrenceRule | "")}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs w-[100px]"
+                  >
+                    <option value="">None</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+                {editRecurrence && (
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] uppercase text-muted-foreground">Every N</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={editRecurrenceInterval}
+                      onChange={(e) => setEditRecurrenceInterval(Math.max(1, Number(e.target.value)))}
+                      className="h-8 text-xs w-[64px]"
+                    />
+                  </div>
+                )}
               </div>
               <Textarea
                 value={editNotes}

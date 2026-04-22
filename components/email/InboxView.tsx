@@ -76,6 +76,8 @@ const BUSINESS_BADGE: Record<BusinessId, string> = {
   unbeatableloans:  "bg-amber-100 text-amber-700",
   ollacart:         "bg-orange-100 text-orange-700",
   personal:         "bg-zinc-100 text-zinc-600",
+  mortgage:         "bg-green-100 text-green-700",
+  projects:         "bg-indigo-100 text-indigo-700",
 }
 
 const CATEGORIES: Array<EmailCategory | "all"> = [

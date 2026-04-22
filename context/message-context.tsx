@@ -281,12 +281,46 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setMessages((prev) =>
         prev.map((m) => (m.id === assistantId ? { ...m, text: visibleText } : m)),
       )
+
+      const createdTaskTitles: string[] = []
       for (const cmd of commands) {
         if (cmd.type === "navigate" && typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("wayward-navigate", { detail: { tab: cmd.tab } }),
           )
         }
+
+        if (cmd.type === "create_task") {
+          try {
+            await fetch("/api/tasks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                business_id: cmd.business_id,
+                title: cmd.title,
+                priority: cmd.priority ?? "medium",
+                category: cmd.category ?? null,
+                due_date: cmd.due_date ?? null,
+                notes: cmd.notes ?? null,
+                source: "claude",
+                recurrence_rule: cmd.recurrence_rule ?? null,
+                recurrence_interval: cmd.recurrence_interval ?? null,
+              }),
+            })
+            createdTaskTitles.push(cmd.title)
+          } catch (err) {
+            console.error("Failed to create task from Claude command:", err)
+          }
+        }
+      }
+
+      if (createdTaskTitles.length > 0) {
+        toast({
+          title: createdTaskTitles.length === 1
+            ? `Task created: "${createdTaskTitles[0]}"`
+            : `${createdTaskTitles.length} tasks created`,
+          description: createdTaskTitles.length > 1 ? createdTaskTitles.join(", ") : undefined,
+        })
       }
 
       // ── Commit user + assistant turns (strip UI command block from assistant)

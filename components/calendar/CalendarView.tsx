@@ -52,6 +52,8 @@ const BUSINESS_DOT: Record<BusinessId, string> = {
   unbeatableloans:  "bg-amber-400",
   ollacart:         "bg-orange-400",
   personal:         "bg-zinc-400",
+  mortgage:         "bg-green-400",
+  projects:         "bg-indigo-400",
 }
 
 function formatTime(iso: string) {

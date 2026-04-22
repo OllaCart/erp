@@ -3,11 +3,19 @@
  * Used in API routes and server-side lib files.
  */
 
-export type BusinessId = "swiftfi" | "unbeatableloans" | "ollacart" | "personal"
+export type BusinessId =
+  | "swiftfi"
+  | "unbeatableloans"
+  | "ollacart"
+  | "personal"
+  | "mortgage"   // day-job at a mortgage company (employment, not startup)
+  | "projects"   // standalone software/dev projects
+
 export type TaskStatus = "todo" | "in_progress" | "done" | "blocked" | "archived"
 export type TaskPriority = "urgent" | "high" | "medium" | "low"
 export type TaskCategory = "dev" | "outreach" | "pitch" | "support" | "ops" | "finance"
 export type TaskSource = "manual" | "email" | "github" | "calendar" | "claude" | "chat"
+export type RecurrenceRule = "daily" | "weekly" | "monthly" | "yearly"
 export type EmailCategory =
   | "urgent"
   | "investor"
@@ -28,13 +36,16 @@ export interface DbTask {
   source: TaskSource
   source_id: string | null
   assignee: string
-  due_date: string | null      // ISO date string "YYYY-MM-DD"
+  due_date: string | null               // ISO date string "YYYY-MM-DD"
   /** Calendar time block start (ISO); unscheduled tasks sort above scheduled within same priority */
   scheduled_start: string | null
   scheduled_end: string | null
   calendar_event_id: string | null
-  completed_at: string | null  // ISO timestamp
+  completed_at: string | null           // ISO timestamp
   notes: string | null
+  recurrence_rule: RecurrenceRule | null
+  recurrence_interval: number | null    // every N units (default 1)
+  recurrence_parent_id: string | null   // set on auto-spawned occurrences
   created_at: string
   updated_at: string
 }
@@ -86,6 +97,9 @@ export interface CreateTaskInput {
   source?: TaskSource
   source_id?: string
   assignee?: string
+  recurrence_rule?: RecurrenceRule
+  recurrence_interval?: number
+  recurrence_parent_id?: string
 }
 
 export interface UpdateTaskInput {
@@ -98,4 +112,6 @@ export interface UpdateTaskInput {
   notes?: string
   assignee?: string
   completed_at?: string | null
+  recurrence_rule?: RecurrenceRule | null
+  recurrence_interval?: number | null
 }

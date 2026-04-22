@@ -3,6 +3,8 @@
  * Assistant appends a block the client parses, strips from the bubble, and executes.
  */
 
+import type { BusinessId, TaskPriority, TaskCategory, RecurrenceRule } from "@/types/db"
+
 export const WAYWARD_CMD_START = "[[WAYWARD_CMDS]]"
 export const WAYWARD_CMD_END = "[[/WAYWARD_CMDS]]"
 
@@ -34,7 +36,19 @@ export interface NavigateCommand {
   tab: WaywardTabId
 }
 
-export type WaywardCommand = NavigateCommand
+export interface CreateTaskCommand {
+  type: "create_task"
+  title: string
+  business_id: BusinessId
+  priority?: TaskPriority
+  category?: TaskCategory
+  due_date?: string           // "YYYY-MM-DD"
+  notes?: string
+  recurrence_rule?: RecurrenceRule
+  recurrence_interval?: number
+}
+
+export type WaywardCommand = NavigateCommand | CreateTaskCommand
 
 export function isWaywardTabId(tab: string): tab is WaywardTabId {
   return (WAYWARD_TAB_IDS as readonly string[]).includes(tab)
@@ -67,17 +81,28 @@ export function parseWaywardCommandBlock(text: string): {
       }
     }
     for (const item of parsed) {
-      if (
-        item &&
-        typeof item === "object" &&
-        (item as { type?: string }).type === "navigate" &&
-        typeof (item as { tab?: string }).tab === "string"
-      ) {
-        const rawTab = (item as { tab: string }).tab
-        const tab = normalizeLegacyNavigateTab(rawTab)
+      if (!item || typeof item !== "object") continue
+      const cmd = item as Record<string, unknown>
+
+      if (cmd.type === "navigate" && typeof cmd.tab === "string") {
+        const tab = normalizeLegacyNavigateTab(cmd.tab)
         if (isWaywardTabId(tab)) {
           commands.push({ type: "navigate", tab })
         }
+      }
+
+      if (cmd.type === "create_task" && typeof cmd.title === "string" && typeof cmd.business_id === "string") {
+        commands.push({
+          type: "create_task",
+          title: cmd.title,
+          business_id: cmd.business_id as BusinessId,
+          priority: (cmd.priority as TaskPriority) ?? "medium",
+          category: cmd.category as TaskCategory | undefined,
+          due_date: cmd.due_date as string | undefined,
+          notes: cmd.notes as string | undefined,
+          recurrence_rule: cmd.recurrence_rule as RecurrenceRule | undefined,
+          recurrence_interval: typeof cmd.recurrence_interval === "number" ? cmd.recurrence_interval : undefined,
+        })
       }
     }
   } catch {
@@ -90,13 +115,32 @@ export function parseWaywardCommandBlock(text: string): {
 
 /** Prompt fragment appended to Claude system context */
 export const COMMAND_CENTER_SYSTEM_APPENDIX = `
---- COMMAND CENTER (UI control) ---
-The user works inside a tabbed web app. When they ask to open, go to, or show a specific module (e.g. "open tasks", "show email inbox", "go to settings"), you MUST append this exact block AFTER your normal reply (user-facing text first, then the block on its own lines):
+--- COMMAND CENTER (UI control + task creation) ---
+You work inside a tabbed web app. Append this block AFTER your normal reply when you need to take action. User-facing text comes first; the block is invisible to the user.
 
 ${WAYWARD_CMD_START}
-[{"type":"navigate","tab":"TAB_ID"}]
+[
+  {"type":"navigate","tab":"TAB_ID"},
+  {
+    "type":"create_task",
+    "title":"Task title",
+    "business_id":"swiftfi|unbeatableloans|ollacart|personal|mortgage|projects",
+    "priority":"urgent|high|medium|low",
+    "category":"dev|outreach|pitch|support|ops|finance",
+    "due_date":"YYYY-MM-DD",
+    "notes":"optional notes",
+    "recurrence_rule":"daily|weekly|monthly|yearly",
+    "recurrence_interval":1
+  }
+]
 ${WAYWARD_CMD_END}
 
-Replace TAB_ID with one of: home, dash (Voice tab), chat, tasks, calendar, financial, memory, social, health, goals, knowledge, email, dev, support, crm, accounts, settings.
-You may include multiple objects in the array if multiple navigations are needed (rare). Do not explain the block to the user; they will not see it.
+RULES:
+- Navigate: when user asks to open/go to a module. TAB_IDs: home, dash, chat, tasks, calendar, financial, memory, social, health, goals, knowledge, email, dev, support, crm, accounts, settings.
+- Create task: when user asks you to add/create/schedule a task, or when you identify a clear action item from conversation. Include as many create_task objects as needed.
+- Business IDs: swiftfi (crypto startup), unbeatableloans (mortgage startup), ollacart (social shopping), personal (personal life), mortgage (day-job at mortgage company), projects (dev/software projects).
+- recurrence_rule is optional — only set it if the task is clearly recurring (e.g. "every week", "daily standup").
+- omit fields you don't have enough info for.
+- You may mix navigate and create_task in the same array.
+- Do not explain the block to the user — they will not see it.
 `.trim()

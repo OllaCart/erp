@@ -7,7 +7,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages"
 
-export type BusinessId = "swiftfi" | "unbeatableloans" | "ollacart" | "personal"
+export type BusinessId = "swiftfi" | "unbeatableloans" | "ollacart" | "personal" | "mortgage" | "projects"
 export type ModuleId =
   | "tasks"
   | "email"
@@ -119,6 +119,8 @@ export const BUSINESS_NAMES: Record<BusinessId, string> = {
   unbeatableloans: "UnbeatableLoans (mortgage app, unbeatableloans.com — early stage)",
   ollacart: "OllaCart (social shopping cart, ollacart.com — Rye API integration in progress)",
   personal: "Personal (founder's personal accounts)",
+  mortgage: "Mortgage Job (day-job employment at a mortgage company)",
+  projects: "Projects (standalone software/dev side projects)",
 }
 
 /** Business tones for email/content drafting. */
@@ -127,4 +129,6 @@ export const BUSINESS_TONES: Record<BusinessId, string> = {
   unbeatableloans: "professional, trustworthy, mortgage-industry standard",
   ollacart: "friendly, social, community-driven",
   personal: "casual, direct, personal",
+  mortgage: "professional, formal, compliance-aware",
+  projects: "technical, pragmatic, developer-focused",
 }
