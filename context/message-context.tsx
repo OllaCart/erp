@@ -305,6 +305,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 source: "claude",
                 recurrence_rule: cmd.recurrence_rule ?? null,
                 recurrence_interval: cmd.recurrence_interval ?? null,
+                follows_up_on: cmd.follows_up_on ?? null,
               }),
             })
             createdTaskTitles.push(cmd.title)

@@ -73,6 +73,9 @@ export async function POST(request: Request) {
       source: body.source ?? "manual",
       source_id: body.source_id ?? null,
       assignee: body.assignee ?? "founder",
+      recurrence_rule: body.recurrence_rule ?? null,
+      recurrence_interval: body.recurrence_interval ?? null,
+      follows_up_on: body.follows_up_on ?? null,
     })
     .select()
     .single()

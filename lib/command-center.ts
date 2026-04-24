@@ -46,6 +46,7 @@ export interface CreateTaskCommand {
   notes?: string
   recurrence_rule?: RecurrenceRule
   recurrence_interval?: number
+  follows_up_on?: string      // UUID of the task this follows up on
 }
 
 export type WaywardCommand = NavigateCommand | CreateTaskCommand
@@ -102,6 +103,7 @@ export function parseWaywardCommandBlock(text: string): {
           notes: cmd.notes as string | undefined,
           recurrence_rule: cmd.recurrence_rule as RecurrenceRule | undefined,
           recurrence_interval: typeof cmd.recurrence_interval === "number" ? cmd.recurrence_interval : undefined,
+          follows_up_on: typeof cmd.follows_up_on === "string" ? cmd.follows_up_on : undefined,
         })
       }
     }
@@ -130,7 +132,8 @@ ${WAYWARD_CMD_START}
     "due_date":"YYYY-MM-DD",
     "notes":"optional notes",
     "recurrence_rule":"daily|weekly|monthly|yearly",
-    "recurrence_interval":1
+    "recurrence_interval":1,
+    "follows_up_on":"<uuid of completed task>"
   }
 ]
 ${WAYWARD_CMD_END}
@@ -138,9 +141,11 @@ ${WAYWARD_CMD_END}
 RULES:
 - Navigate: when user asks to open/go to a module. TAB_IDs: home, dash, chat, tasks, calendar, financial, memory, social, health, goals, knowledge, email, dev, support, crm, accounts, settings.
 - Create task: when user asks you to add/create/schedule a task, or when you identify a clear action item from conversation. Include as many create_task objects as needed.
+- Follow-up tasks: when the user mentions completing a task or you see a natural next step after a task, create a follow-up task with follows_up_on set to the completed task's UUID. Use this when the user says things like "I finished X, what's next?", "I just completed X", or when you identify a clear successor action.
 - Business IDs: swiftfi (crypto startup), unbeatableloans (mortgage startup), ollacart (social shopping), personal (personal life), mortgage (day-job at mortgage company), projects (dev/software projects).
-- recurrence_rule is optional — only set it if the task is clearly recurring (e.g. "every week", "daily standup").
-- omit fields you don't have enough info for.
+- recurrence_rule is optional — only set it if the task is clearly recurring.
+- follows_up_on is optional — only set it when there is a clear predecessor task and you know its UUID.
+- Omit fields you don't have enough info for.
 - You may mix navigate and create_task in the same array.
 - Do not explain the block to the user — they will not see it.
 `.trim()

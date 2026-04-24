@@ -111,11 +111,13 @@ function formatScheduleRange(startIso: string, endIso: string): string {
 function NewTaskDialog({
   open,
   defaultBusiness,
+  followUpSource,
   onClose,
   onCreated,
 }: {
   open: boolean
   defaultBusiness: BusinessId | "all"
+  followUpSource?: DbTask
   onClose: () => void
   onCreated: (task: DbTask) => void
 }) {
@@ -132,19 +134,27 @@ function NewTaskDialog({
   const [notes, setNotes] = useState("")
   const [isSaving, setIsSaving] = useState(false)
 
-  // Reset when reopened
+  // Reset when reopened; pre-fill from followUpSource if present
   useEffect(() => {
     if (open) {
-      setTitle("")
-      setBusiness(defaultBusiness === "all" ? "personal" : defaultBusiness)
-      setPriority("medium")
-      setCategory("")
-      setDueDate("")
+      if (followUpSource) {
+        setTitle("")
+        setBusiness(followUpSource.business_id)
+        setPriority(followUpSource.priority)
+        setCategory(followUpSource.category ?? "")
+        setDueDate("")
+      } else {
+        setTitle("")
+        setBusiness(defaultBusiness === "all" ? "personal" : defaultBusiness)
+        setPriority("medium")
+        setCategory("")
+        setDueDate("")
+      }
       setRecurrenceRule("")
       setRecurrenceInterval(1)
       setNotes("")
     }
-  }, [open, defaultBusiness])
+  }, [open, defaultBusiness, followUpSource])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -164,15 +174,19 @@ function NewTaskDialog({
           source: "manual",
           recurrence_rule: recurrenceRule || null,
           recurrence_interval: recurrenceRule ? recurrenceInterval : null,
+          follows_up_on: followUpSource?.id ?? null,
         }),
       })
       if (!res.ok) throw new Error("Failed to create task")
       const { task } = (await res.json()) as { task: DbTask }
       onCreated(task)
       toast({
-        title: recurrenceRule
+        title: followUpSource
+          ? `Follow-up created`
+          : recurrenceRule
           ? `Recurring task created (${recurrenceRule})`
           : "Task created",
+        description: followUpSource ? `Linked to: ${followUpSource.title}` : undefined,
       })
       onClose()
     } catch (err) {
@@ -187,12 +201,26 @@ function NewTaskDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 text-indigo-500" />
-            New task
+            {followUpSource ? (
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+            ) : (
+              <Plus className="h-4 w-4 text-muted-foreground" />
+            )}
+            {followUpSource ? "Create follow-up task" : "New task"}
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-3 py-1">
+          {/* Follow-up banner */}
+          {followUpSource && (
+            <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+              <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-green-600" />
+              <span>
+                Following up on: <span className="font-medium">{followUpSource.title}</span>
+              </span>
+            </div>
+          )}
+
           {/* Title */}
           <div className="space-y-1">
             <Label className="text-xs">Title</Label>
@@ -318,7 +346,7 @@ function NewTaskDialog({
 
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={isSaving}>
-            Cancel
+            {followUpSource ? "Skip" : "Cancel"}
           </Button>
           <Button
             size="sm"
@@ -328,12 +356,14 @@ function NewTaskDialog({
           >
             {isSaving ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : followUpSource ? (
+              <CheckCircle2 className="h-3.5 w-3.5" />
             ) : recurrenceRule ? (
               <RefreshCw className="h-3.5 w-3.5" />
             ) : (
               <Plus className="h-3.5 w-3.5" />
             )}
-            {recurrenceRule ? "Create recurring task" : "Create task"}
+            {followUpSource ? "Create follow-up" : recurrenceRule ? "Create recurring task" : "Create task"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -353,6 +383,7 @@ export function TaskView() {
   const [isAdding, setIsAdding] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showNewTask, setShowNewTask] = useState(false)
+  const [followUpSource, setFollowUpSource] = useState<DbTask | null>(null)
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true)
@@ -388,6 +419,11 @@ export function TaskView() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     })
+    // When marking done, offer a follow-up
+    if (newStatus === "done") {
+      setFollowUpSource(task)
+      setShowNewTask(true)
+    }
   }
 
   async function handleQuickAdd(e: React.FormEvent) {
@@ -486,7 +522,8 @@ export function TaskView() {
       <NewTaskDialog
         open={showNewTask}
         defaultBusiness={activeBusiness}
-        onClose={() => setShowNewTask(false)}
+        followUpSource={followUpSource ?? undefined}
+        onClose={() => { setShowNewTask(false); setFollowUpSource(null) }}
         onCreated={handleTaskCreated}
       />
       {/* Business tabs */}
@@ -589,6 +626,7 @@ export function TaskView() {
                       }
                       onToggleDone={() => toggleDone(task)}
                       onTaskUpdated={mergeTaskIntoList}
+                      onFollowUp={(t) => { setFollowUpSource(t); setShowNewTask(true) }}
                     />
                   ))}
                 </div>
@@ -615,6 +653,7 @@ export function TaskView() {
                   }
                   onToggleDone={() => toggleDone(task)}
                   onTaskUpdated={mergeTaskIntoList}
+                  onFollowUp={(t) => { setFollowUpSource(t); setShowNewTask(true) }}
                 />
               ))}
             </div>
@@ -652,12 +691,14 @@ function TaskRow({
   onToggleExpand,
   onToggleDone,
   onTaskUpdated,
+  onFollowUp,
 }: {
   task: DbTask
   expanded: boolean
   onToggleExpand: () => void
   onToggleDone: () => void
   onTaskUpdated: (t: DbTask) => void
+  onFollowUp?: (task: DbTask) => void
 }) {
   const { toast } = useToast()
   const isDone = task.status === "done"
@@ -920,6 +961,13 @@ function TaskRow({
               {task.notes && (
                 <p className="italic text-xs">{task.notes}</p>
               )}
+              {/* Follows-up-on indicator */}
+              {task.follows_up_on && (
+                <p className="text-xs flex items-center gap-1 text-green-700">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  Follow-up task
+                </p>
+              )}
               <p className="text-xs">
                 Created {new Date(task.created_at).toLocaleDateString()} · Assignee: {task.assignee}
               </p>
@@ -929,12 +977,23 @@ function TaskRow({
                   <span>{aiNote}</span>
                 </div>
               )}
-              <button
-                onClick={openEdit}
-                className="text-xs text-primary hover:underline mt-1 inline-block"
-              >
-                Edit task
-              </button>
+              <div className="flex gap-3 items-center mt-1">
+                <button
+                  onClick={openEdit}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Edit task
+                </button>
+                {onFollowUp && !isDone && (
+                  <button
+                    onClick={() => onFollowUp(task)}
+                    className="text-xs text-green-700 hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Create follow-up
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

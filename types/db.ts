@@ -46,6 +46,7 @@ export interface DbTask {
   recurrence_rule: RecurrenceRule | null
   recurrence_interval: number | null    // every N units (default 1)
   recurrence_parent_id: string | null   // set on auto-spawned occurrences
+  follows_up_on: string | null          // UUID of the task this was created to follow up on
   created_at: string
   updated_at: string
 }
@@ -100,6 +101,7 @@ export interface CreateTaskInput {
   recurrence_rule?: RecurrenceRule
   recurrence_interval?: number
   recurrence_parent_id?: string
+  follows_up_on?: string
 }
 
 export interface UpdateTaskInput {
