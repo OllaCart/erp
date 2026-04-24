@@ -21,12 +21,19 @@ import {
   Pencil,
   X,
   Save,
+  RefreshCw,
 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import type { DbTask, BusinessId, TaskPriority, TaskStatus, TaskCategory, RecurrenceRule } from "@/types/db"
 import { sortTasksForDisplay } from "@/lib/task-sort"
 import { Label } from "@/components/ui/label"
-import { RefreshCw } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 const BUSINESSES: Array<{ id: BusinessId | "all"; label: string; color: string; subtitle?: string }> = [
   { id: "all",            label: "All",              color: "bg-zinc-500" },
@@ -99,6 +106,243 @@ function formatScheduleRange(startIso: string, endIso: string): string {
   return `${s.toLocaleString("en-US", { ...dOpts, ...tOpts })} — ${e.toLocaleString("en-US", { ...dOpts, ...tOpts })}`
 }
 
+// ── NewTaskDialog ─────────────────────────────────────────────────────────────
+
+function NewTaskDialog({
+  open,
+  defaultBusiness,
+  onClose,
+  onCreated,
+}: {
+  open: boolean
+  defaultBusiness: BusinessId | "all"
+  onClose: () => void
+  onCreated: (task: DbTask) => void
+}) {
+  const { toast } = useToast()
+  const [title, setTitle] = useState("")
+  const [business, setBusiness] = useState<BusinessId>(
+    defaultBusiness === "all" ? "personal" : defaultBusiness,
+  )
+  const [priority, setPriority] = useState<TaskPriority>("medium")
+  const [category, setCategory] = useState<TaskCategory | "">("")
+  const [dueDate, setDueDate] = useState("")
+  const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule | "">("")
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1)
+  const [notes, setNotes] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Reset when reopened
+  useEffect(() => {
+    if (open) {
+      setTitle("")
+      setBusiness(defaultBusiness === "all" ? "personal" : defaultBusiness)
+      setPriority("medium")
+      setCategory("")
+      setDueDate("")
+      setRecurrenceRule("")
+      setRecurrenceInterval(1)
+      setNotes("")
+    }
+  }, [open, defaultBusiness])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!title.trim() || isSaving) return
+    setIsSaving(true)
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          business_id: business,
+          title: title.trim(),
+          priority,
+          category: category || null,
+          due_date: dueDate || null,
+          notes: notes.trim() || null,
+          source: "manual",
+          recurrence_rule: recurrenceRule || null,
+          recurrence_interval: recurrenceRule ? recurrenceInterval : null,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to create task")
+      const { task } = (await res.json()) as { task: DbTask }
+      onCreated(task)
+      toast({
+        title: recurrenceRule
+          ? `Recurring task created (${recurrenceRule})`
+          : "Task created",
+      })
+      onClose()
+    } catch (err) {
+      toast({ title: "Could not create task", description: String(err), variant: "destructive" })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-indigo-500" />
+            New task
+          </DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-3 py-1">
+          {/* Title */}
+          <div className="space-y-1">
+            <Label className="text-xs">Title</Label>
+            <Input
+              autoFocus
+              placeholder="Task title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+
+          {/* Row: Business + Priority */}
+          <div className="flex gap-3">
+            <div className="space-y-1 flex-1">
+              <Label className="text-xs">Business</Label>
+              <select
+                value={business}
+                onChange={(e) => setBusiness(e.target.value as BusinessId)}
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              >
+                {BUSINESSES.filter((b) => b.id !== "all").map((b) => (
+                  <option key={b.id} value={b.id}>{b.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Priority</Label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="urgent">Urgent</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Row: Category + Due date */}
+          <div className="flex gap-3">
+            <div className="space-y-1 flex-1">
+              <Label className="text-xs">Category</Label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as TaskCategory | "")}
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="">None</option>
+                <option value="dev">Dev</option>
+                <option value="outreach">Outreach</option>
+                <option value="pitch">Pitch</option>
+                <option value="support">Support</option>
+                <option value="ops">Ops</option>
+                <option value="finance">Finance</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Due date</Label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="h-9 text-sm w-[148px]"
+              />
+            </div>
+          </div>
+
+          {/* Recurrence */}
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
+            <Label className="text-xs flex items-center gap-1.5 text-indigo-700">
+              <RefreshCw className="h-3 w-3" /> Recurrence
+            </Label>
+            <div className="flex gap-3 items-end">
+              <div className="space-y-1 flex-1">
+                <Label className="text-[10px] text-muted-foreground">Repeat</Label>
+                <select
+                  value={recurrenceRule}
+                  onChange={(e) => setRecurrenceRule(e.target.value as RecurrenceRule | "")}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value="">Does not repeat</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              {recurrenceRule && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Every N</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={recurrenceInterval}
+                    onChange={(e) => setRecurrenceInterval(Math.max(1, Number(e.target.value)))}
+                    className="h-9 text-sm w-[72px]"
+                  />
+                </div>
+              )}
+            </div>
+            {recurrenceRule && (
+              <p className="text-[11px] text-indigo-600">
+                Repeats every {recurrenceInterval > 1 ? `${recurrenceInterval} ` : ""}
+                {recurrenceRule}{recurrenceInterval > 1 ? "s" : ""}.
+                The next occurrence is created automatically when you complete this one.
+              </p>
+            )}
+          </div>
+
+          {/* Notes */}
+          <div className="space-y-1">
+            <Label className="text-xs">Notes</Label>
+            <Textarea
+              placeholder="Optional notes…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="text-sm min-h-[56px] resize-none"
+            />
+          </div>
+        </form>
+
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!title.trim() || isSaving}
+            onClick={handleSubmit}
+            className="gap-1.5"
+          >
+            {isSaving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : recurrenceRule ? (
+              <RefreshCw className="h-3.5 w-3.5" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+            {recurrenceRule ? "Create recurring task" : "Create task"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── TaskView ──────────────────────────────────────────────────────────────────
+
 export function TaskView() {
   const { toast } = useToast()
   const [tasks, setTasks] = useState<DbTask[]>([])
@@ -108,6 +352,7 @@ export function TaskView() {
   const [quickAdd, setQuickAdd] = useState("")
   const [isAdding, setIsAdding] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showNewTask, setShowNewTask] = useState(false)
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true)
@@ -128,6 +373,10 @@ export function TaskView() {
   useEffect(() => {
     fetchTasks()
   }, [fetchTasks])
+
+  function handleTaskCreated(task: DbTask) {
+    setTasks((prev) => sortTasksForDisplay([task, ...prev]))
+  }
 
   async function toggleDone(task: DbTask) {
     const newStatus: TaskStatus = task.status === "done" ? "todo" : "done"
@@ -227,9 +476,19 @@ export function TaskView() {
 
   const activeTasks = tasks.filter((t) => t.status !== "done" && t.status !== "archived")
   const doneTasks = tasks.filter((t) => t.status === "done")
+  // Recurring "templates" — the parent tasks that drive a series
+  const recurringTasks = tasks.filter(
+    (t) => t.recurrence_rule && !t.recurrence_parent_id && t.status !== "archived",
+  )
 
   return (
     <div className="flex flex-col h-full gap-4 p-4">
+      <NewTaskDialog
+        open={showNewTask}
+        defaultBusiness={activeBusiness}
+        onClose={() => setShowNewTask(false)}
+        onCreated={handleTaskCreated}
+      />
       {/* Business tabs */}
       <div className="flex gap-1.5 flex-wrap">
         {BUSINESSES.map((b) => {
@@ -254,20 +513,31 @@ export function TaskView() {
           )
         })}
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto gap-1.5"
-          onClick={handlePrioritize}
-          disabled={isPrioritizing}
-        >
-          {isPrioritizing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Sparkles className="h-3.5 w-3.5" />
-          )}
-          Ask Claude to prioritize
-        </Button>
+        <div className="ml-auto flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowNewTask(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New task
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={handlePrioritize}
+            disabled={isPrioritizing}
+          >
+            {isPrioritizing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            Prioritize
+          </Button>
+        </div>
       </div>
 
       {/* Quick add */}
@@ -325,6 +595,30 @@ export function TaskView() {
               </div>
             )
           })
+        )}
+
+        {/* Recurring section */}
+        {recurringTasks.length > 0 && (
+          <details className="group" open>
+            <summary className="flex items-center gap-2 text-xs font-semibold text-indigo-600 uppercase tracking-wide cursor-pointer select-none">
+              <RefreshCw className="h-3 w-3" />
+              Recurring ({recurringTasks.length})
+            </summary>
+            <div className="mt-2 space-y-1">
+              {recurringTasks.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  expanded={expandedId === task.id}
+                  onToggleExpand={() =>
+                    setExpandedId(expandedId === task.id ? null : task.id)
+                  }
+                  onToggleDone={() => toggleDone(task)}
+                  onTaskUpdated={mergeTaskIntoList}
+                />
+              ))}
+            </div>
+          </details>
         )}
 
         {/* Done section */}
